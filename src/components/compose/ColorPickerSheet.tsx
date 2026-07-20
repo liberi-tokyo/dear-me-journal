@@ -1,28 +1,53 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { HexColorInput, HexColorPicker } from "react-colorful";
 
 import { ColorSwatch } from "@/components/compose/ColorSwatch";
 import { normalizeHex } from "@/lib/utils/color";
+
+/** 開いた直後の pointerup が背景に当たって即閉じるのを防ぐ */
+const CLOSE_GUARD_MS = 400;
 
 type ColorPickerSheetProps = {
   open: boolean;
   color: string;
   recentColors: string[];
   onColorChange: (color: string) => void;
-  onClose: () => void;
+  /** 選択色を確定して閉じる */
+  onConfirm: () => void;
+  /** 開いた時点の色に戻して閉じる */
+  onCancel: () => void;
 };
+
+function BodyPortal({ children }: { children: ReactNode }) {
+  // カラーピッカーはユーザー操作後にしか開かないため、SSR 時は描画不要
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(children, document.body);
+}
 
 export function ColorPickerSheet({
   open,
   color,
   recentColors,
   onColorChange,
-  onClose,
+  onConfirm,
+  onCancel,
 }: ColorPickerSheetProps) {
   const titleId = useId();
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const openedAtRef = useRef(0);
   const normalized = normalizeHex(color);
 
   useEffect(() => {
@@ -30,114 +55,167 @@ export function ColorPickerSheet({
       return;
     }
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    closeButtonRef.current?.focus();
+    openedAtRef.current = Date.now();
+
+    const body = document.body;
+    const html = document.documentElement;
+    const scrollY = window.scrollY;
+    const previous = {
+      bodyOverflow: body.style.overflow,
+      bodyPosition: body.style.position,
+      bodyTop: body.style.top,
+      bodyWidth: body.style.width,
+      bodyTouchAction: body.style.touchAction,
+      htmlOverflow: html.style.overflow,
+    };
+
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    body.style.touchAction = "none";
+    html.style.overflow = "hidden";
+
+    window.requestAnimationFrame(() => {
+      dialogRef.current?.focus();
+    });
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose();
+        onCancel();
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      body.style.overflow = previous.bodyOverflow;
+      body.style.position = previous.bodyPosition;
+      body.style.top = previous.bodyTop;
+      body.style.width = previous.bodyWidth;
+      body.style.touchAction = previous.bodyTouchAction;
+      html.style.overflow = previous.htmlOverflow;
+      window.scrollTo(0, scrollY);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [onClose, open]);
+  }, [onCancel, open]);
+
+  const canClose = useCallback(() => {
+    return Date.now() - openedAtRef.current >= CLOSE_GUARD_MS;
+  }, []);
+
+  const handleBackdropClose = useCallback(() => {
+    if (!canClose()) {
+      return;
+    }
+    onCancel();
+  }, [canClose, onCancel]);
+
+  const stopSheetPointer = useCallback((event: SyntheticEvent) => {
+    event.stopPropagation();
+  }, []);
 
   if (!open) {
     return null;
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-stone-900/35"
-        aria-label="カラーピッカーを閉じる"
-        onClick={onClose}
-      />
-
+    <BodyPortal>
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="relative z-10 flex max-h-[min(78dvh,36rem)] w-full max-w-lg flex-col rounded-t-3xl bg-white shadow-xl sm:mx-4 sm:rounded-3xl"
+        className="fixed inset-0 z-[10000] flex items-end justify-center sm:items-center sm:p-4"
+        style={{ minHeight: "100dvh" }}
       >
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-          <h2 id={titleId} className="text-base font-medium text-stone-800">
-            色を選ぶ
-          </h2>
-          <button
-            ref={closeButtonRef}
-            type="button"
-            onClick={onClose}
-            className="min-h-11 min-w-11 touch-manipulation rounded-full text-sm text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
-          >
-            閉じる
-          </button>
-        </div>
+        <button
+          type="button"
+          className="absolute inset-0 touch-manipulation bg-stone-900/40"
+          aria-label="キャンセルして閉じる"
+          onClick={handleBackdropClose}
+        />
 
-        <div className="overflow-y-auto overscroll-contain px-5 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]">
-          <div className="mb-5 flex items-center gap-4">
-            <div
-              className="size-16 shrink-0 rounded-full border border-stone-200/80 shadow-sm"
-              style={{ backgroundColor: normalized }}
-              aria-label={`選択中の色 ${normalized}`}
-              role="img"
-            />
-            <label className="min-w-0 flex-1">
-              <span className="mb-1 block text-xs text-stone-500">HEX</span>
-              <HexColorInput
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          onClick={stopSheetPointer}
+          onPointerDown={stopSheetPointer}
+          className="relative z-10 flex max-h-[min(85dvh,40rem)] w-full max-w-lg flex-col rounded-t-3xl bg-white shadow-2xl outline-none sm:rounded-3xl"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-3 px-5 pt-4 pb-2">
+            <h2 id={titleId} className="text-base font-medium text-stone-800">
+              色を選ぶ
+            </h2>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="min-h-11 min-w-11 touch-manipulation rounded-full px-3 text-sm text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
+            >
+              キャンセル
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] [-webkit-overflow-scrolling:touch]">
+            <div className="mb-5 flex items-center gap-4">
+              <div
+                className="size-16 shrink-0 rounded-full border border-stone-200/80 shadow-sm"
+                style={{ backgroundColor: normalized }}
+                aria-label={`選択中の色 ${normalized}`}
+                role="img"
+              />
+              <label className="min-w-0 flex-1">
+                <span className="mb-1 block text-xs text-stone-500">HEX</span>
+                <HexColorInput
+                  color={normalized}
+                  onChange={(next) => onColorChange(normalizeHex(next))}
+                  prefixed
+                  aria-label="カラーコード"
+                  className="min-h-11 w-full rounded-2xl border border-stone-200/90 bg-stone-50 px-4 font-mono text-base text-stone-800 outline-none focus:border-stone-300"
+                />
+              </label>
+            </div>
+
+            <div className="color-picker-sheet">
+              <HexColorPicker
                 color={normalized}
                 onChange={(next) => onColorChange(normalizeHex(next))}
-                prefixed
-                aria-label="カラーコード"
-                className="min-h-11 w-full rounded-2xl border border-stone-200/90 bg-stone-50 px-4 font-mono text-base text-stone-800 outline-none focus:border-stone-300"
+                aria-label="彩度と明るさ、色相の選択"
               />
-            </label>
-          </div>
+            </div>
 
-          <div className="color-picker-sheet">
-            <HexColorPicker
-              color={normalized}
-              onChange={(next) => onColorChange(normalizeHex(next))}
-              aria-label="彩度と明るさ、色相の選択"
-            />
-          </div>
-
-          {recentColors.length > 0 ? (
-            <section className="mt-6" aria-labelledby="sheet-recent-colors-heading">
-              <h3
-                id="sheet-recent-colors-heading"
-                className="mb-3 text-sm text-stone-500"
+            {recentColors.length > 0 ? (
+              <section
+                className="mt-6"
+                aria-labelledby="sheet-recent-colors-heading"
               >
-                最近使った色
-              </h3>
-              <div className="flex flex-wrap gap-3">
-                {recentColors.map((recent) => (
-                  <ColorSwatch
-                    key={recent}
-                    color={recent}
-                    selected={normalizeHex(recent) === normalized}
-                    onSelect={(next) => onColorChange(normalizeHex(next))}
-                  />
-                ))}
-              </div>
-            </section>
-          ) : null}
+                <h3
+                  id="sheet-recent-colors-heading"
+                  className="mb-3 text-sm text-stone-500"
+                >
+                  最近使った色
+                </h3>
+                <div className="flex flex-wrap gap-3">
+                  {recentColors.map((recent) => (
+                    <ColorSwatch
+                      key={recent}
+                      color={recent}
+                      selected={normalizeHex(recent) === normalized}
+                      onSelect={(next) => onColorChange(normalizeHex(next))}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="mt-6 min-h-11 w-full touch-manipulation rounded-full border border-stone-200/90 bg-stone-800 py-3.5 text-base font-medium text-white transition-[transform,opacity] active:scale-[0.98]"
-          >
-            この色を使う
-          </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              className="mt-6 min-h-12 w-full touch-manipulation rounded-full bg-stone-800 py-3.5 text-base font-medium text-white transition-[transform,opacity] active:scale-[0.98]"
+            >
+              この色にする
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </BodyPortal>
   );
 }

@@ -1,6 +1,12 @@
 "use client";
 
-import { useId, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { ColorPickerSheet } from "@/components/compose/ColorPickerSheet";
 import { ColorSwatch } from "@/components/compose/ColorSwatch";
@@ -37,14 +43,27 @@ export function ComposeColorStep({
     normalizeHex(initialColor || recentColors[0] || DEFAULT_DRAFT_COLOR),
   );
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** シートを開いた時点の色（キャンセル時に復元） */
+  const colorBeforePickerRef = useRef(draftColor);
 
-  const openPicker = () => {
-    if (!saving) {
-      setPickerOpen(true);
+  const openPicker = useCallback(() => {
+    if (saving || pickerOpen) {
+      return;
     }
-  };
+    colorBeforePickerRef.current = draftColor;
+    setPickerOpen(true);
+  }, [draftColor, pickerOpen, saving]);
 
-  const handleConfirm = () => {
+  const handleSheetCancel = useCallback(() => {
+    setDraftColor(colorBeforePickerRef.current);
+    setPickerOpen(false);
+  }, []);
+
+  const handleSheetConfirm = useCallback(() => {
+    setPickerOpen(false);
+  }, []);
+
+  const handleSave = () => {
     onConfirm(normalizeHex(draftColor));
   };
 
@@ -89,9 +108,13 @@ export function ComposeColorStep({
               aria-label={`選択中の色 ${draftColor}。タップして色を選ぶ`}
               aria-haspopup="dialog"
               aria-expanded={pickerOpen}
-              className="size-24 touch-manipulation rounded-full border border-white/70 shadow-md transition-transform hover:scale-[1.02] active:scale-95"
+              className="relative flex size-24 touch-manipulation items-center justify-center rounded-full border border-white/70 shadow-md transition-transform hover:scale-[1.02] active:scale-95"
               style={{ backgroundColor: draftColor }}
-            />
+            >
+              {/* iOS Safari は子要素のない button へのタップを無視することがある */}
+              <span aria-hidden className="pointer-events-none size-full rounded-full" />
+              <span className="sr-only">色を選ぶ</span>
+            </button>
             <button
               type="button"
               onClick={openPicker}
@@ -99,7 +122,9 @@ export function ComposeColorStep({
             >
               色を選ぶ
             </button>
-            <p className="font-mono text-xs text-stone-400">{draftColor}</p>
+            <p className="font-mono text-xs text-stone-400" aria-live="polite">
+              {draftColor}
+            </p>
           </section>
 
           {recentColors.length > 0 ? (
@@ -129,11 +154,11 @@ export function ComposeColorStep({
           <div className="mx-auto mt-auto w-full max-w-md pt-4">
             <button
               type="button"
-              onClick={handleConfirm}
+              onClick={handleSave}
               disabled={saving}
               className="min-h-11 w-full touch-manipulation rounded-full border border-stone-200/90 bg-white/80 py-3.5 text-base font-medium text-stone-700 shadow-sm shadow-stone-300/25 backdrop-blur-sm transition-[transform,opacity,background-color] active:scale-[0.98] disabled:opacity-60"
             >
-              この色にする
+              この色で保存する
             </button>
           </div>
         </div>
@@ -144,7 +169,8 @@ export function ComposeColorStep({
         color={draftColor}
         recentColors={recentColors}
         onColorChange={setDraftColor}
-        onClose={() => setPickerOpen(false)}
+        onConfirm={handleSheetConfirm}
+        onCancel={handleSheetCancel}
       />
     </div>
   );
