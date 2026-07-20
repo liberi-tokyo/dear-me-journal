@@ -1,36 +1,132 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 毎月日記
 
-## Getting Started
+子どもでも使えるほどシンプルで、大人も使える日記アプリ。  
+コンセプトは「投稿したら過去が返ってくる」「思い出が報酬」。
 
-First, run the development server:
+## 技術スタック
+
+- Next.js (App Router) / TypeScript / Tailwind CSS
+- Firebase Auth（Google ログイン）
+- Cloud Firestore（`users/{uid}/entries/{entryId}`）
+- Firebase Storage（`users/{uid}/entries/{entryId}/image`）
+
+## セットアップ
+
+### 1. 依存関係のインストール
+
+```bash
+npm install
+```
+
+### 2. Firebase プロジェクトの作成
+
+1. [Firebase Console](https://console.firebase.google.com/) でプロジェクトを作成
+2. **Authentication** → Sign-in method → **Google** を有効化
+3. **Firestore Database** を作成（本番モードで開始し、ルールをデプロイ）
+4. **Storage** を有効化し、ルールをデプロイ
+5. **Project settings** → **Your apps** → Web アプリを追加し、設定値を取得
+6. Authentication → Settings → Authorized domains に開発用ホストを追加（必要に応じて）
+
+### 3. 環境変数
+
+```bash
+cp .env.example .env.local
+```
+
+`.env.local` に Firebase の設定値を記入してください。
+
+### 4. Security Rules / Indexes のデプロイ
+
+```bash
+firebase login
+firebase use <your-project-id>
+firebase deploy --only firestore:rules,firestore:indexes,storage
+```
+
+### 5. 開発サーバー
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+[http://localhost:3000](http://localhost:3000) を開きます。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 6. iPhone 実機テスト（同一 Wi‑Fi）
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Mac と iPhone を同じ Wi‑Fi に接続し、LAN 経由で開発サーバーを開きます。
 
-## Learn More
+1. Mac の IP アドレスを確認する
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+ipconfig getifaddr en0
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+（Wi‑Fi が `en1` の場合は `en1` に変更）
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+2. `.env.local` に次を追加する（IP は手順1の値に置き換え）
 
-## Deploy on Vercel
+```bash
+DEV_LAN_ORIGIN=192.168.x.x:3000
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Next.js 16 では、iPhone から `/_next/*` を読み込むために `allowedDevOrigins` が必要です。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+3. LAN 向け開発サーバーを起動する
+
+```bash
+npm run dev:lan
+```
+
+4. iPhone の Safari で開く
+
+```
+http://192.168.x.x:3000
+```
+
+**確認フロー（実機）**
+
+1. アーカイブ → ＋で新規投稿 → 本文入力 → 色選択 → 確定
+2. 投稿後画面で今日のカード → 下スクロールで過去日記
+3. 左下ボタンでアーカイブへ → 設定（歯車）→ 問いかけ変更・トグル確認
+4. 再度投稿して設定反映を確認
+
+**実機で見るポイント**
+
+- ノッチ / ホームインジケータと FAB（左下・右下）の干渉
+- `100dvh` とキーボード表示時のスクロール
+- textarea フォーカス時の意図しないズーム（16px 未満入力を回避済み）
+- カラーサークルタップで標準カラーピッカーが開くこと
+- 色は「この色にする」確定時のみ履歴保存（最近使った色・最大12色）
+
+## プロジェクト構成
+
+```
+src/
+├── app/                 # App Router ページ
+├── components/          # UI コンポーネント
+├── contexts/            # React Context（Auth など）
+└── lib/
+    ├── firebase/        # Firebase 初期化・定数
+    └── types/           # 型定義
+firebase/
+├── firestore.rules
+└── storage.rules
+```
+
+## 仕様メモ（MVP）
+
+- **認証**: Google ログイン（1アカウント = 1冊の日記）
+- **1日1投稿**: 同日に再投稿すると既存日記を更新
+- **写真**: 1投稿1枚（任意）
+- **日付**: Asia/Tokyo の暦日
+- **PWA / Vercel**: 未対応（次フェーズ）
+
+## スクリプト
+
+| コマンド        | 説明           |
+| --------------- | -------------- |
+| `npm run dev`   | 開発サーバー   |
+| `npm run dev:lan` | 同一 Wi‑Fi 内の実機からアクセス可能な開発サーバー |
+| `npm run build` | 本番ビルド     |
+| `npm run start` | 本番サーバー   |
+| `npm run lint`  | ESLint         |

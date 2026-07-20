@@ -1,26 +1,97 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-noto-sans-jp), "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+    "Yu Gothic UI", "Meiryo", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes entry-card-edge-bloom {
+  0% {
+    box-shadow: var(--entry-shadow-start);
+  }
+  100% {
+    box-shadow: var(--entry-resting-shadow);
   }
 }
 
+.animate-entry-card-edge-bloom {
+  animation: entry-card-edge-bloom 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 500ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes past-archive-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-past-archive-reveal {
+  animation: past-archive-reveal 600ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.font-outfit-black {
+  font-family: var(--font-outfit), sans-serif;
+  font-weight: 900;
+}
+
+html {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  overflow-x: hidden;
+}
+
+@supports (-webkit-touch-callout: none) {
+  body {
+    min-height: -webkit-fill-available;
+  }
+}
+
+/* iOS Safari: 16px未満の入力でフォーカス時にズームするのを防ぐ */
+textarea,
+input:not([type="color"]),
+select {
+  font-size: max(16px, 1em);
+}
+
+/* react-colorful — タッチしやすいサイズ */
+.color-picker-sheet .react-colorful {
+  width: 100%;
+  height: 14rem;
+}
+.color-picker-sheet .react-colorful__saturation {
+  border-radius: 1rem;
+  border-bottom: none;
+}
+.color-picker-sheet .react-colorful__hue {
+  height: 1.75rem;
+  margin-top: 0.875rem;
+  border-radius: 9999px;
+}
+.color-picker-sheet .react-colorful__pointer {
+  width: 1.75rem;
+  height: 1.75rem;
 }

@@ -1,0 +1,10 @@
+import type { EntryDate } from "./entry";
+
+/** 過去日記表示用（Firestore 非依存） */
+export type PastEntryDisplay = {
+  id: string;
+  entryDate: EntryDate;
+  body: string;
+  color: string;
+  photoUrl?: string;
+};
