@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   type ReactNode,
   type SyntheticEvent,
@@ -14,7 +15,7 @@ import { HexColorInput, HexColorPicker } from "react-colorful";
 import { ColorSwatch } from "@/components/compose/ColorSwatch";
 import { normalizeHex } from "@/lib/utils/color";
 
-/** 開いた直後の pointerup が背景に当たって即閉じるのを防ぐ */
+/** 開いた直後の pointerup / 合成 click が背景に当たって即閉じるのを防ぐ */
 const CLOSE_GUARD_MS = 400;
 
 export const COLOR_PICKER_PORTAL_ROOT_ID = "color-picker-portal-root";
@@ -71,6 +72,7 @@ export function ColorPickerSheet({
 }: ColorPickerSheetProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLButtonElement>(null);
   const openedAtRef = useRef(0);
   const normalized = normalizeHex(color);
 
@@ -79,12 +81,33 @@ export function ColorPickerSheet({
     return () => onSheetMountChange?.(false);
   }, [onSheetMountChange, open]);
 
-  useEffect(() => {
+  // paint 前に開いた時刻を刻み、backdrop は遅延有効化
+  // （openedAt を useEffect で刻むと iOS 合成 click に負け、elapsed が巨大になり即 close する）
+  useLayoutEffect(() => {
     if (!open || forceDebugVisible) {
       return;
     }
 
     openedAtRef.current = Date.now();
+    const backdrop = backdropRef.current;
+    if (backdrop) {
+      backdrop.style.pointerEvents = "none";
+    }
+    const timer = window.setTimeout(() => {
+      if (backdropRef.current) {
+        backdropRef.current.style.pointerEvents = "auto";
+      }
+    }, CLOSE_GUARD_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [forceDebugVisible, open]);
+
+  useEffect(() => {
+    if (!open || forceDebugVisible) {
+      return;
+    }
 
     const body = document.body;
     const html = document.documentElement;
@@ -128,15 +151,10 @@ export function ColorPickerSheet({
     };
   }, [forceDebugVisible, onCancel, open]);
 
-  useEffect(() => {
-    if (open && forceDebugVisible) {
-      openedAtRef.current = Date.now();
-    }
-  }, [forceDebugVisible, open]);
-
   const handleBackdropClose = useCallback(() => {
     const elapsedMs = Date.now() - openedAtRef.current;
-    const blockedByGuard = elapsedMs < CLOSE_GUARD_MS;
+    const blockedByGuard =
+      openedAtRef.current === 0 || elapsedMs < CLOSE_GUARD_MS;
     onBackdropAttempt?.({ blockedByGuard, elapsedMs });
     if (blockedByGuard) {
       return;
@@ -206,9 +224,11 @@ export function ColorPickerSheet({
         data-testid="color-picker-sheet"
       >
         <button
+          ref={backdropRef}
           type="button"
           className="absolute inset-0 touch-manipulation bg-stone-900/40"
           aria-label="キャンセルして閉じる"
+          style={{ pointerEvents: "none" }}
           onClick={handleBackdropClose}
         />
 
