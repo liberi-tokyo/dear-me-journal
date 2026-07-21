@@ -17,19 +17,39 @@ import { normalizeHex } from "@/lib/utils/color";
 /** 開いた直後の pointerup が背景に当たって即閉じるのを防ぐ */
 const CLOSE_GUARD_MS = 400;
 
+export const COLOR_PICKER_PORTAL_ROOT_ID = "color-picker-portal-root";
+
 type ColorPickerSheetProps = {
   open: boolean;
   color: string;
   recentColors: string[];
   onColorChange: (color: string) => void;
-  /** 選択色を確定して閉じる */
   onConfirm: () => void;
-  /** 開いた時点の色に戻して閉じる */
-  onCancel: () => void;
+  onCancel: (reason: "backdrop" | "cancel-button" | "escape") => void;
+  /** ?debugColor=1 強制表示（backdropなし・赤枠） */
+  forceDebugVisible?: boolean;
+  onSheetMountChange?: (mounted: boolean) => void;
+  onPortalMountChange?: (mounted: boolean) => void;
+  onBackdropAttempt?: (info: {
+    blockedByGuard: boolean;
+    elapsedMs: number;
+  }) => void;
 };
 
-function BodyPortal({ children }: { children: ReactNode }) {
-  // カラーピッカーはユーザー操作後にしか開かないため、SSR 時は描画不要
+function BodyPortal({
+  children,
+  onPortalMountChange,
+}: {
+  children: ReactNode;
+  onPortalMountChange?: (mounted: boolean) => void;
+}) {
+  useEffect(() => {
+    const root = document.getElementById(COLOR_PICKER_PORTAL_ROOT_ID);
+    const mounted = Boolean(root && root.parentElement === document.body);
+    onPortalMountChange?.(mounted);
+    return () => onPortalMountChange?.(false);
+  }, [onPortalMountChange]);
+
   if (typeof document === "undefined") {
     return null;
   }
@@ -44,6 +64,10 @@ export function ColorPickerSheet({
   onColorChange,
   onConfirm,
   onCancel,
+  forceDebugVisible = false,
+  onSheetMountChange,
+  onPortalMountChange,
+  onBackdropAttempt,
 }: ColorPickerSheetProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -51,7 +75,12 @@ export function ColorPickerSheet({
   const normalized = normalizeHex(color);
 
   useEffect(() => {
-    if (!open) {
+    onSheetMountChange?.(open);
+    return () => onSheetMountChange?.(false);
+  }, [onSheetMountChange, open]);
+
+  useEffect(() => {
+    if (!open || forceDebugVisible) {
       return;
     }
 
@@ -82,7 +111,7 @@ export function ColorPickerSheet({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onCancel();
+        onCancel("escape");
       }
     };
 
@@ -97,18 +126,23 @@ export function ColorPickerSheet({
       window.scrollTo(0, scrollY);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [onCancel, open]);
+  }, [forceDebugVisible, onCancel, open]);
 
-  const canClose = useCallback(() => {
-    return Date.now() - openedAtRef.current >= CLOSE_GUARD_MS;
-  }, []);
+  useEffect(() => {
+    if (open && forceDebugVisible) {
+      openedAtRef.current = Date.now();
+    }
+  }, [forceDebugVisible, open]);
 
   const handleBackdropClose = useCallback(() => {
-    if (!canClose()) {
+    const elapsedMs = Date.now() - openedAtRef.current;
+    const blockedByGuard = elapsedMs < CLOSE_GUARD_MS;
+    onBackdropAttempt?.({ blockedByGuard, elapsedMs });
+    if (blockedByGuard) {
       return;
     }
-    onCancel();
-  }, [canClose, onCancel]);
+    onCancel("backdrop");
+  }, [onBackdropAttempt, onCancel]);
 
   const stopSheetPointer = useCallback((event: SyntheticEvent) => {
     event.stopPropagation();
@@ -118,11 +152,58 @@ export function ColorPickerSheet({
     return null;
   }
 
+  if (forceDebugVisible) {
+    return (
+      <BodyPortal onPortalMountChange={onPortalMountChange}>
+        <div
+          id={COLOR_PICKER_PORTAL_ROOT_ID}
+          data-testid="color-picker-sheet-debug"
+          style={{
+            position: "fixed",
+            top: 20,
+            left: 20,
+            right: 20,
+            zIndex: 2147483647,
+            opacity: 1,
+            transform: "none",
+            visibility: "visible",
+            background: "#ffffff",
+            border: "4px solid #ef4444",
+            borderRadius: 16,
+            padding: 16,
+            maxHeight: "80vh",
+            overflow: "auto",
+          }}
+        >
+          <p
+            style={{
+              margin: "0 0 12px",
+              fontSize: 20,
+              fontWeight: 800,
+              color: "#b91c1c",
+            }}
+          >
+            COLOR PICKER DEBUG VISIBLE
+          </p>
+          <div className="color-picker-sheet">
+            <HexColorPicker
+              color={normalized}
+              onChange={(next) => onColorChange(normalizeHex(next))}
+            />
+          </div>
+          <p style={{ marginTop: 12, fontFamily: "monospace" }}>{normalized}</p>
+        </div>
+      </BodyPortal>
+    );
+  }
+
   return (
-    <BodyPortal>
+    <BodyPortal onPortalMountChange={onPortalMountChange}>
       <div
+        id={COLOR_PICKER_PORTAL_ROOT_ID}
         className="fixed inset-0 z-[10000] flex items-end justify-center sm:items-center sm:p-4"
         style={{ minHeight: "100dvh" }}
+        data-testid="color-picker-sheet"
       >
         <button
           type="button"
@@ -147,7 +228,7 @@ export function ColorPickerSheet({
             </h2>
             <button
               type="button"
-              onClick={onCancel}
+              onClick={() => onCancel("cancel-button")}
               className="min-h-11 min-w-11 touch-manipulation rounded-full px-3 text-sm text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
             >
               キャンセル

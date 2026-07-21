@@ -27,6 +27,7 @@ import { prepareImageForCrop } from "@/lib/utils/imageCrop";
 
 type ComposeFlowProps = {
   initialDate?: string;
+  debugColor?: boolean;
 };
 
 function revokeBlobUrl(url?: string) {
@@ -35,7 +36,7 @@ function revokeBlobUrl(url?: string) {
   }
 }
 
-export function ComposeFlow({ initialDate }: ComposeFlowProps) {
+export function ComposeFlow({ initialDate, debugColor = false }: ComposeFlowProps) {
   const router = useRouter();
   const { user } = useAuth();
   const { prompt: composePrompt, usePromptAsTemplate } = useComposePrompt();
@@ -45,7 +46,9 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
 
   const [bootLoading, setBootLoading] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
-  const [step, setStep] = useState<ComposeStep>("write");
+  const [step, setStep] = useState<ComposeStep>(
+    debugColor ? "color" : "write",
+  );
   const [mode, setMode] = useState<"create" | "edit">("create");
   const [entryDate, setEntryDate] = useState<EntryDate>(
     initialDate ?? todayEntryDate(),
@@ -413,6 +416,7 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
             }
             saving={saving}
             onConfirm={handleColorSelect}
+            debugColor={debugColor}
           />
         </div>
       ) : null}

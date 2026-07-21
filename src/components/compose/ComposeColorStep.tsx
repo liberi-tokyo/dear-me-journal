@@ -2,12 +2,19 @@
 
 import {
   useCallback,
+  useEffect,
   useId,
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 
+import {
+  ColorPickerDebugHud,
+  EMPTY_COLOR_PICKER_DEBUG,
+  type ColorPickerDebugSnapshot,
+} from "@/components/compose/ColorPickerDebugHud";
 import { ColorPickerSheet } from "@/components/compose/ColorPickerSheet";
 import { ColorSwatch } from "@/components/compose/ColorSwatch";
 import { SavedEntryCard } from "@/components/entry/SavedEntryCard";
@@ -27,6 +34,8 @@ type ComposeColorStepProps = {
   photoPreviewUrl?: string;
   saving?: boolean;
   onConfirm: (color: string) => void;
+  /** URL ?debugColor=1 */
+  debugColor?: boolean;
 };
 
 export function ComposeColorStep({
@@ -37,34 +46,137 @@ export function ComposeColorStep({
   photoPreviewUrl,
   saving = false,
   onConfirm,
+  debugColor = false,
 }: ComposeColorStepProps) {
   const headingId = useId();
   const [draftColor, setDraftColor] = useState(() =>
     normalizeHex(initialColor || recentColors[0] || DEFAULT_DRAFT_COLOR),
   );
-  const [pickerOpen, setPickerOpen] = useState(false);
-  /** シートを開いた時点の色（キャンセル時に復元） */
+  const [pickerOpen, setPickerOpen] = useState(debugColor);
   const colorBeforePickerRef = useRef(draftColor);
+  const openedAtRef = useRef<number | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
 
-  const openPicker = useCallback(() => {
-    if (saving || pickerOpen) {
-      return;
-    }
-    colorBeforePickerRef.current = draftColor;
-    setPickerOpen(true);
-  }, [draftColor, pickerOpen, saving]);
+  const [debug, setDebug] = useState<ColorPickerDebugSnapshot>(() => ({
+    ...EMPTY_COLOR_PICKER_DEBUG,
+    openState: debugColor,
+  }));
 
-  const handleSheetCancel = useCallback(() => {
-    setDraftColor(colorBeforePickerRef.current);
-    setPickerOpen(false);
+  const patchDebug = useCallback((patch: Partial<ColorPickerDebugSnapshot>) => {
+    setDebug((current) => ({ ...current, ...patch }));
   }, []);
+
+  const showToast = useCallback(
+    (message: string) => {
+      patchDebug({ toast: message });
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+      toastTimerRef.current = window.setTimeout(() => {
+        patchDebug({ toast: null });
+        toastTimerRef.current = null;
+      }, 2000);
+    },
+    [patchDebug],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
+  const eventLogRef = useRef<string[]>([]);
+
+  const openPicker = useCallback(
+    (eventName: string) => {
+      eventLogRef.current = [...eventLogRef.current.slice(-4), eventName];
+      const eventLog = eventLogRef.current.join(" → ");
+      patchDebug({
+        tap: true,
+        lastEvent: eventLog,
+      });
+      // トーストは「開く操作」のときだけ（多重イベントで連打しない）
+      if (!pickerOpen && !saving) {
+        showToast("色ボタンが押されました");
+      }
+
+      if (saving) {
+        patchDebug({
+          tap: true,
+          lastEvent: `${eventLog} (blocked: saving)`,
+        });
+        return;
+      }
+
+      if (pickerOpen) {
+        patchDebug({
+          tap: true,
+          lastEvent: `${eventLog} (already open)`,
+        });
+        return;
+      }
+
+      colorBeforePickerRef.current = draftColor;
+      openedAtRef.current = Date.now();
+      setPickerOpen(true);
+      patchDebug({
+        openState: true,
+        openDurationMs: 0,
+      });
+    },
+    [draftColor, patchDebug, pickerOpen, saving, showToast],
+  );
+
+  const handleSheetCancel = useCallback(
+    (reason: "backdrop" | "cancel-button" | "escape") => {
+      const duration =
+        openedAtRef.current === null
+          ? null
+          : Date.now() - openedAtRef.current;
+      setDraftColor(colorBeforePickerRef.current);
+      setPickerOpen(false);
+      patchDebug({
+        closeReason: reason,
+        openDurationMs: duration,
+        openState: false,
+      });
+    },
+    [patchDebug],
+  );
 
   const handleSheetConfirm = useCallback(() => {
+    const duration =
+      openedAtRef.current === null ? null : Date.now() - openedAtRef.current;
     setPickerOpen(false);
-  }, []);
+    patchDebug({
+      closeReason: "confirm",
+      openDurationMs: duration,
+      openState: false,
+    });
+  }, [patchDebug]);
 
   const handleSave = () => {
     onConfirm(normalizeHex(draftColor));
+  };
+
+  // preventDefault は使わない（iOS の click 抑制を避ける）
+  const onCirclePointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    openPicker(`pointerup:${event.pointerType}`);
+  };
+
+  const onCircleTouchEnd = () => {
+    // preventDefault しない
+    openPicker("touchend");
+  };
+
+  const onCircleClick = () => {
+    openPicker("click");
   };
 
   return (
@@ -76,7 +188,14 @@ export function ComposeColorStep({
         } as CSSProperties
       }
     >
-      <div className="flex flex-1 flex-col px-6 pb-[max(2.5rem,env(safe-area-inset-bottom,0px))] pt-[max(4rem,env(safe-area-inset-top,0px))]">
+      <ColorPickerDebugHud
+        debug={{
+          ...debug,
+          openState: pickerOpen,
+        }}
+      />
+
+      <div className="flex flex-1 flex-col px-6 pb-[max(2.5rem,env(safe-area-inset-bottom,0px))] pt-[max(5.5rem,env(safe-area-inset-top,0px))]">
         <h1
           id={headingId}
           className="mb-8 text-center text-2xl font-medium tracking-tight text-stone-800"
@@ -85,7 +204,7 @@ export function ComposeColorStep({
         </h1>
 
         <div
-          className={`flex flex-1 flex-col gap-8 ${saving ? "pointer-events-none opacity-60" : ""}`}
+          className={`relative z-0 flex flex-1 flex-col gap-8 ${saving ? "pointer-events-none opacity-60" : ""}`}
           aria-busy={saving}
         >
           <div className="mx-auto w-full max-w-md">
@@ -100,25 +219,38 @@ export function ComposeColorStep({
 
           <section
             aria-labelledby={headingId}
-            className="mx-auto flex w-full max-w-md flex-col items-center gap-3"
+            className="relative z-10 mx-auto flex w-full max-w-md flex-col items-center gap-3"
           >
             <button
               type="button"
-              onClick={openPicker}
+              onPointerUp={onCirclePointerUp}
+              onTouchEnd={onCircleTouchEnd}
+              onClick={onCircleClick}
               aria-label={`選択中の色 ${draftColor}。タップして色を選ぶ`}
               aria-haspopup="dialog"
               aria-expanded={pickerOpen}
-              className="relative flex size-24 touch-manipulation items-center justify-center rounded-full border border-white/70 shadow-md transition-transform hover:scale-[1.02] active:scale-95"
-              style={{ backgroundColor: draftColor }}
+              className="relative z-20 flex size-24 touch-manipulation items-center justify-center rounded-full border-2 border-stone-800/20 shadow-md"
+              style={{
+                backgroundColor: draftColor,
+                WebkitTapHighlightColor: "rgba(0,0,0,0.15)",
+                touchAction: "manipulation",
+              }}
             >
-              {/* iOS Safari は子要素のない button へのタップを無視することがある */}
-              <span aria-hidden className="pointer-events-none size-full rounded-full" />
+              <span
+                aria-hidden
+                className="pointer-events-none size-full rounded-full"
+              />
               <span className="sr-only">色を選ぶ</span>
             </button>
             <button
               type="button"
-              onClick={openPicker}
-              className="min-h-11 touch-manipulation px-4 text-sm text-stone-500 transition-colors hover:text-stone-700"
+              onPointerUp={(event) =>
+                openPicker(`label-pointerup:${event.pointerType}`)
+              }
+              onTouchEnd={() => openPicker("label-touchend")}
+              onClick={() => openPicker("label-click")}
+              className="relative z-20 min-h-11 touch-manipulation px-4 text-sm text-stone-500"
+              style={{ touchAction: "manipulation" }}
             >
               色を選ぶ
             </button>
@@ -171,6 +303,20 @@ export function ComposeColorStep({
         onColorChange={setDraftColor}
         onConfirm={handleSheetConfirm}
         onCancel={handleSheetCancel}
+        forceDebugVisible={debugColor}
+        onSheetMountChange={(mounted) =>
+          patchDebug({ sheetMounted: mounted })
+        }
+        onPortalMountChange={(mounted) =>
+          patchDebug({ portalMounted: mounted })
+        }
+        onBackdropAttempt={({ blockedByGuard, elapsedMs }) => {
+          patchDebug({
+            lastEvent: blockedByGuard
+              ? `backdrop blocked (${elapsedMs}ms < 400)`
+              : `backdrop close (${elapsedMs}ms)`,
+          });
+        }}
       />
     </div>
   );
