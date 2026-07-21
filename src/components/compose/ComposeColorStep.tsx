@@ -1,20 +1,7 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useCallback, useId, useRef, useState, type CSSProperties } from "react";
 
-import {
-  ColorPickerDebugHud,
-  EMPTY_COLOR_PICKER_DEBUG,
-  type ColorPickerDebugSnapshot,
-} from "@/components/compose/ColorPickerDebugHud";
 import { ColorPickerSheet } from "@/components/compose/ColorPickerSheet";
 import { ColorSwatch } from "@/components/compose/ColorSwatch";
 import { SavedEntryCard } from "@/components/entry/SavedEntryCard";
@@ -34,8 +21,6 @@ type ComposeColorStepProps = {
   photoPreviewUrl?: string;
   saving?: boolean;
   onConfirm: (color: string) => void;
-  /** URL ?debugColor=1 */
-  debugColor?: boolean;
 };
 
 export function ComposeColorStep({
@@ -46,137 +31,33 @@ export function ComposeColorStep({
   photoPreviewUrl,
   saving = false,
   onConfirm,
-  debugColor = false,
 }: ComposeColorStepProps) {
   const headingId = useId();
   const [draftColor, setDraftColor] = useState(() =>
     normalizeHex(initialColor || recentColors[0] || DEFAULT_DRAFT_COLOR),
   );
-  const [pickerOpen, setPickerOpen] = useState(debugColor);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const colorBeforePickerRef = useRef(draftColor);
-  const openedAtRef = useRef<number | null>(null);
-  const toastTimerRef = useRef<number | null>(null);
 
-  const [debug, setDebug] = useState<ColorPickerDebugSnapshot>(() => ({
-    ...EMPTY_COLOR_PICKER_DEBUG,
-    openState: debugColor,
-  }));
+  const openPicker = useCallback(() => {
+    if (saving || pickerOpen) {
+      return;
+    }
+    colorBeforePickerRef.current = draftColor;
+    setPickerOpen(true);
+  }, [draftColor, pickerOpen, saving]);
 
-  const patchDebug = useCallback((patch: Partial<ColorPickerDebugSnapshot>) => {
-    setDebug((current) => ({ ...current, ...patch }));
+  const handleSheetCancel = useCallback(() => {
+    setDraftColor(colorBeforePickerRef.current);
+    setPickerOpen(false);
   }, []);
-
-  const showToast = useCallback(
-    (message: string) => {
-      patchDebug({ toast: message });
-      if (toastTimerRef.current !== null) {
-        window.clearTimeout(toastTimerRef.current);
-      }
-      toastTimerRef.current = window.setTimeout(() => {
-        patchDebug({ toast: null });
-        toastTimerRef.current = null;
-      }, 2000);
-    },
-    [patchDebug],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current !== null) {
-        window.clearTimeout(toastTimerRef.current);
-      }
-    };
-  }, []);
-
-  const eventLogRef = useRef<string[]>([]);
-
-  const openPicker = useCallback(
-    (eventName: string) => {
-      eventLogRef.current = [...eventLogRef.current.slice(-4), eventName];
-      const eventLog = eventLogRef.current.join(" → ");
-      patchDebug({
-        tap: true,
-        lastEvent: eventLog,
-      });
-      // トーストは「開く操作」のときだけ（多重イベントで連打しない）
-      if (!pickerOpen && !saving) {
-        showToast("色ボタンが押されました");
-      }
-
-      if (saving) {
-        patchDebug({
-          tap: true,
-          lastEvent: `${eventLog} (blocked: saving)`,
-        });
-        return;
-      }
-
-      if (pickerOpen) {
-        patchDebug({
-          tap: true,
-          lastEvent: `${eventLog} (already open)`,
-        });
-        return;
-      }
-
-      colorBeforePickerRef.current = draftColor;
-      openedAtRef.current = Date.now();
-      setPickerOpen(true);
-      patchDebug({
-        openState: true,
-        openDurationMs: 0,
-      });
-    },
-    [draftColor, patchDebug, pickerOpen, saving, showToast],
-  );
-
-  const handleSheetCancel = useCallback(
-    (reason: "backdrop" | "cancel-button" | "escape") => {
-      const duration =
-        openedAtRef.current === null
-          ? null
-          : Date.now() - openedAtRef.current;
-      setDraftColor(colorBeforePickerRef.current);
-      setPickerOpen(false);
-      patchDebug({
-        closeReason: reason,
-        openDurationMs: duration,
-        openState: false,
-      });
-    },
-    [patchDebug],
-  );
 
   const handleSheetConfirm = useCallback(() => {
-    const duration =
-      openedAtRef.current === null ? null : Date.now() - openedAtRef.current;
     setPickerOpen(false);
-    patchDebug({
-      closeReason: "confirm",
-      openDurationMs: duration,
-      openState: false,
-    });
-  }, [patchDebug]);
+  }, []);
 
   const handleSave = () => {
     onConfirm(normalizeHex(draftColor));
-  };
-
-  // preventDefault は使わない（iOS の click 抑制を避ける）
-  const onCirclePointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType === "mouse" && event.button !== 0) {
-      return;
-    }
-    openPicker(`pointerup:${event.pointerType}`);
-  };
-
-  const onCircleTouchEnd = () => {
-    // preventDefault しない
-    openPicker("touchend");
-  };
-
-  const onCircleClick = () => {
-    openPicker("click");
   };
 
   return (
@@ -188,14 +69,7 @@ export function ComposeColorStep({
         } as CSSProperties
       }
     >
-      <ColorPickerDebugHud
-        debug={{
-          ...debug,
-          openState: pickerOpen,
-        }}
-      />
-
-      <div className="flex flex-1 flex-col px-6 pb-[max(2.5rem,env(safe-area-inset-bottom,0px))] pt-[max(5.5rem,env(safe-area-inset-top,0px))]">
+      <div className="flex flex-1 flex-col px-6 pb-[max(2.5rem,env(safe-area-inset-bottom,0px))] pt-[max(4rem,env(safe-area-inset-top,0px))]">
         <h1
           id={headingId}
           className="mb-8 text-center text-2xl font-medium tracking-tight text-stone-800"
@@ -223,9 +97,7 @@ export function ComposeColorStep({
           >
             <button
               type="button"
-              onPointerUp={onCirclePointerUp}
-              onTouchEnd={onCircleTouchEnd}
-              onClick={onCircleClick}
+              onClick={openPicker}
               aria-label={`選択中の色 ${draftColor}。タップして色を選ぶ`}
               aria-haspopup="dialog"
               aria-expanded={pickerOpen}
@@ -244,12 +116,8 @@ export function ComposeColorStep({
             </button>
             <button
               type="button"
-              onPointerUp={(event) =>
-                openPicker(`label-pointerup:${event.pointerType}`)
-              }
-              onTouchEnd={() => openPicker("label-touchend")}
-              onClick={() => openPicker("label-click")}
-              className="relative z-20 min-h-11 touch-manipulation px-4 text-sm text-stone-500"
+              onClick={openPicker}
+              className="relative z-20 min-h-11 touch-manipulation px-4 text-sm text-stone-500 transition-colors hover:text-stone-700"
               style={{ touchAction: "manipulation" }}
             >
               色を選ぶ
@@ -303,20 +171,6 @@ export function ComposeColorStep({
         onColorChange={setDraftColor}
         onConfirm={handleSheetConfirm}
         onCancel={handleSheetCancel}
-        forceDebugVisible={debugColor}
-        onSheetMountChange={(mounted) =>
-          patchDebug({ sheetMounted: mounted })
-        }
-        onPortalMountChange={(mounted) =>
-          patchDebug({ portalMounted: mounted })
-        }
-        onBackdropAttempt={({ blockedByGuard, elapsedMs }) => {
-          patchDebug({
-            lastEvent: blockedByGuard
-              ? `backdrop blocked (${elapsedMs}ms < 400)`
-              : `backdrop close (${elapsedMs}ms)`,
-          });
-        }}
       />
     </div>
   );

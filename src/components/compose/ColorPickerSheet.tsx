@@ -18,7 +18,7 @@ import { normalizeHex } from "@/lib/utils/color";
 /** 開いた直後の pointerup / 合成 click が背景に当たって即閉じるのを防ぐ */
 const CLOSE_GUARD_MS = 400;
 
-export const COLOR_PICKER_PORTAL_ROOT_ID = "color-picker-portal-root";
+const COLOR_PICKER_PORTAL_ROOT_ID = "color-picker-portal-root";
 
 type ColorPickerSheetProps = {
   open: boolean;
@@ -26,31 +26,10 @@ type ColorPickerSheetProps = {
   recentColors: string[];
   onColorChange: (color: string) => void;
   onConfirm: () => void;
-  onCancel: (reason: "backdrop" | "cancel-button" | "escape") => void;
-  /** ?debugColor=1 強制表示（backdropなし・赤枠） */
-  forceDebugVisible?: boolean;
-  onSheetMountChange?: (mounted: boolean) => void;
-  onPortalMountChange?: (mounted: boolean) => void;
-  onBackdropAttempt?: (info: {
-    blockedByGuard: boolean;
-    elapsedMs: number;
-  }) => void;
+  onCancel: () => void;
 };
 
-function BodyPortal({
-  children,
-  onPortalMountChange,
-}: {
-  children: ReactNode;
-  onPortalMountChange?: (mounted: boolean) => void;
-}) {
-  useEffect(() => {
-    const root = document.getElementById(COLOR_PICKER_PORTAL_ROOT_ID);
-    const mounted = Boolean(root && root.parentElement === document.body);
-    onPortalMountChange?.(mounted);
-    return () => onPortalMountChange?.(false);
-  }, [onPortalMountChange]);
-
+function BodyPortal({ children }: { children: ReactNode }) {
   if (typeof document === "undefined") {
     return null;
   }
@@ -65,10 +44,6 @@ export function ColorPickerSheet({
   onColorChange,
   onConfirm,
   onCancel,
-  forceDebugVisible = false,
-  onSheetMountChange,
-  onPortalMountChange,
-  onBackdropAttempt,
 }: ColorPickerSheetProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -76,15 +51,9 @@ export function ColorPickerSheet({
   const openedAtRef = useRef(0);
   const normalized = normalizeHex(color);
 
-  useEffect(() => {
-    onSheetMountChange?.(open);
-    return () => onSheetMountChange?.(false);
-  }, [onSheetMountChange, open]);
-
-  // paint 前に開いた時刻を刻み、backdrop は遅延有効化
-  // （openedAt を useEffect で刻むと iOS 合成 click に負け、elapsed が巨大になり即 close する）
+  // paint 前に開いた時刻を刻み、backdrop は遅延有効化（iOS 合成 click 対策）
   useLayoutEffect(() => {
-    if (!open || forceDebugVisible) {
+    if (!open) {
       return;
     }
 
@@ -102,10 +71,10 @@ export function ColorPickerSheet({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [forceDebugVisible, open]);
+  }, [open]);
 
   useEffect(() => {
-    if (!open || forceDebugVisible) {
+    if (!open) {
       return;
     }
 
@@ -134,7 +103,7 @@ export function ColorPickerSheet({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onCancel("escape");
+        onCancel();
       }
     };
 
@@ -149,18 +118,15 @@ export function ColorPickerSheet({
       window.scrollTo(0, scrollY);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [forceDebugVisible, onCancel, open]);
+  }, [onCancel, open]);
 
   const handleBackdropClose = useCallback(() => {
     const elapsedMs = Date.now() - openedAtRef.current;
-    const blockedByGuard =
-      openedAtRef.current === 0 || elapsedMs < CLOSE_GUARD_MS;
-    onBackdropAttempt?.({ blockedByGuard, elapsedMs });
-    if (blockedByGuard) {
+    if (openedAtRef.current === 0 || elapsedMs < CLOSE_GUARD_MS) {
       return;
     }
-    onCancel("backdrop");
-  }, [onBackdropAttempt, onCancel]);
+    onCancel();
+  }, [onCancel]);
 
   const stopSheetPointer = useCallback((event: SyntheticEvent) => {
     event.stopPropagation();
@@ -170,58 +136,12 @@ export function ColorPickerSheet({
     return null;
   }
 
-  if (forceDebugVisible) {
-    return (
-      <BodyPortal onPortalMountChange={onPortalMountChange}>
-        <div
-          id={COLOR_PICKER_PORTAL_ROOT_ID}
-          data-testid="color-picker-sheet-debug"
-          style={{
-            position: "fixed",
-            top: 20,
-            left: 20,
-            right: 20,
-            zIndex: 2147483647,
-            opacity: 1,
-            transform: "none",
-            visibility: "visible",
-            background: "#ffffff",
-            border: "4px solid #ef4444",
-            borderRadius: 16,
-            padding: 16,
-            maxHeight: "80vh",
-            overflow: "auto",
-          }}
-        >
-          <p
-            style={{
-              margin: "0 0 12px",
-              fontSize: 20,
-              fontWeight: 800,
-              color: "#b91c1c",
-            }}
-          >
-            COLOR PICKER DEBUG VISIBLE
-          </p>
-          <div className="color-picker-sheet">
-            <HexColorPicker
-              color={normalized}
-              onChange={(next) => onColorChange(normalizeHex(next))}
-            />
-          </div>
-          <p style={{ marginTop: 12, fontFamily: "monospace" }}>{normalized}</p>
-        </div>
-      </BodyPortal>
-    );
-  }
-
   return (
-    <BodyPortal onPortalMountChange={onPortalMountChange}>
+    <BodyPortal>
       <div
         id={COLOR_PICKER_PORTAL_ROOT_ID}
         className="fixed inset-0 z-[10000] flex items-end justify-center sm:items-center sm:p-4"
         style={{ minHeight: "100dvh" }}
-        data-testid="color-picker-sheet"
       >
         <button
           ref={backdropRef}
@@ -248,7 +168,7 @@ export function ColorPickerSheet({
             </h2>
             <button
               type="button"
-              onClick={() => onCancel("cancel-button")}
+              onClick={onCancel}
               className="min-h-11 min-w-11 touch-manipulation rounded-full px-3 text-sm text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700"
             >
               キャンセル
