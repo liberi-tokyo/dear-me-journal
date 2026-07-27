@@ -28,7 +28,8 @@ export function FeaturedPastEntry({
 
       <header className="mb-6 flex items-baseline justify-between gap-4">
         <p className="text-lg font-medium text-stone-800">
-          {formatPastTodayLabel(referenceEntryDate, entry.entryDate)}
+          {entry.pastLabel ??
+            formatPastTodayLabel(referenceEntryDate, entry.entryDate)}
         </p>
         <time className="shrink-0 text-sm text-stone-500">
           {formatEntryDateLabel(entry.entryDate)}

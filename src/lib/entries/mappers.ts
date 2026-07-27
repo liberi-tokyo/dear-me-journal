@@ -11,13 +11,17 @@ export function toArchiveDayEntry(entry: DiaryEntry): ArchiveDayEntry {
   };
 }
 
-export function toPastEntryDisplay(entry: DiaryEntry): PastEntryDisplay {
+export function toPastEntryDisplay(
+  entry: DiaryEntry,
+  pastLabel?: string,
+): PastEntryDisplay {
   return {
     id: entry.id,
     entryDate: entry.entryDate,
     body: entry.text,
     color: entry.color,
     photoUrl: entry.imageUrl ?? undefined,
+    pastLabel,
   };
 }
 

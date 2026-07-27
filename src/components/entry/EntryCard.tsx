@@ -14,15 +14,28 @@ export function EntryCard({ entry }: EntryCardProps) {
       className="w-full rounded-2xl bg-white p-5"
       style={{ boxShadow: getEntryColorShadow(entry.color) } as CSSProperties}
     >
-      <div className="mb-3 flex items-center gap-2">
-        <span
-          className="size-3 shrink-0 rounded-full"
-          style={{ backgroundColor: entry.color }}
-          aria-hidden
-        />
-        <time className="text-sm text-stone-500">
-          {formatEntryDateLabel(entry.entryDate)}
-        </time>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="size-3 shrink-0 rounded-full"
+            style={{ backgroundColor: entry.color }}
+            aria-hidden
+          />
+          {entry.pastLabel ? (
+            <p className="truncate text-sm font-medium text-stone-800">
+              {entry.pastLabel}
+            </p>
+          ) : (
+            <time className="text-sm text-stone-500">
+              {formatEntryDateLabel(entry.entryDate)}
+            </time>
+          )}
+        </div>
+        {entry.pastLabel ? (
+          <time className="shrink-0 text-sm text-stone-500">
+            {formatEntryDateLabel(entry.entryDate)}
+          </time>
+        ) : null}
       </div>
 
       {entry.photoUrl ? (

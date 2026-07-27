@@ -85,8 +85,13 @@ export function ComposeWriteStep({
     <div className="flex min-h-dvh flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pt-[max(1rem,env(safe-area-inset-top,0px))]">
         <p className="text-center text-sm text-stone-500">
-          {mode === "edit" ? "編集" : "新しい日記"}
+          {mode === "edit" ? "この日の日記を編集" : "新しい日記"}
         </p>
+        {mode === "edit" ? (
+          <p className="mt-1 text-center text-xs text-amber-700/80">
+            同じ日付の日記があるため、保存すると上書きされます
+          </p>
+        ) : null}
         <EntryDateButton entryDate={entryDate} onChange={onEntryDateChange} />
 
         <textarea

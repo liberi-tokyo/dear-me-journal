@@ -17,11 +17,15 @@ import {
   mergeCachedEntries,
   upsertCachedEntry,
 } from "@/lib/entries/cache";
-import { selectPastEntriesForDisplay } from "@/lib/entries/selectPastEntries";
+import {
+  buildSameDayTargetDates,
+  selectSameDayPastEntries,
+  type PastEntrySelection,
+} from "@/lib/entries/selectPastEntries";
 import { getClientFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/firebase/constants";
 import type { DiaryEntry, DiaryEntryWriteInput, EntryDate } from "@/lib/types/entry";
-import { addCalendarDays, toMonthDay } from "@/lib/utils/date";
+import { toMonthDay } from "@/lib/utils/date";
 
 function entriesCollection(userId: string) {
   return collection(
@@ -122,36 +126,66 @@ export async function listEntriesBefore(
 }
 
 /**
- * 投稿完了後の過去日記候補。
- * 全件取得せず、直近 + 記念日付近の範囲だけを並列取得して優先順位付けする。
+ * 基準日の「同じ日の過去」を優先取得する（投稿完了・詳細で共用）。
+ *
+ * - 1か月前 / 半年前 / 1週間前（代替）/ 1〜10年前: 対象日の getDoc
+ * - 1か月枠の最終代替: 必要時のみ直近過去からランダム1件
+ * - 表示は最大10件
  */
+export async function listPastSameDayMemories(
+  userId: string,
+  referenceDate: EntryDate,
+): Promise<PastEntrySelection[]> {
+  const targets = buildSameDayTargetDates(referenceDate);
+  const exactDates = [
+    targets.oneMonthAgo,
+    targets.sixMonthsAgo,
+    targets.oneWeekAgo,
+    ...targets.yearsAgo,
+  ].filter((date): date is EntryDate => Boolean(date));
+
+  // 同じ日付が複数枠に入らないよう一意化（例:  theoretically overlapping）
+  const uniqueDates = [...new Set(exactDates)];
+
+  const exactEntries = await Promise.all(
+    uniqueDates.map((date) => getEntryByDate(userId, date)),
+  );
+
+  const entriesByDate = new Map<EntryDate, DiaryEntry>();
+  for (const entry of exactEntries) {
+    if (entry && entry.entryDate < referenceDate) {
+      entriesByDate.set(entry.entryDate, entry);
+    }
+  }
+
+  const needsMonthFallback =
+    !targets.oneMonthAgo || !entriesByDate.has(targets.oneMonthAgo);
+  const hasWeekFallback = Boolean(
+    targets.oneWeekAgo && entriesByDate.has(targets.oneWeekAgo),
+  );
+
+  let randomCandidates: DiaryEntry[] = [];
+  if (needsMonthFallback && !hasWeekFallback) {
+    randomCandidates = await listEntriesBefore(userId, referenceDate, 40);
+  }
+
+  return selectSameDayPastEntries(
+    referenceDate,
+    entriesByDate,
+    randomCandidates,
+  );
+}
+
+/** @deprecated listPastSameDayMemories を使う */
 export async function listPastEntriesForCompose(
   userId: string,
   entryDate: EntryDate,
 ): Promise<DiaryEntry[]> {
-  const ranges: Array<[EntryDate, EntryDate]> = [
-    [addCalendarDays(entryDate, -40), addCalendarDays(entryDate, -2)],
-    [addCalendarDays(entryDate, -385), addCalendarDays(entryDate, -345)],
-    [addCalendarDays(entryDate, -750), addCalendarDays(entryDate, -710)],
-    [addCalendarDays(entryDate, -1125), addCalendarDays(entryDate, -1065)],
-  ];
-
-  const [recent, ...rangeResults] = await Promise.all([
-    listEntriesBefore(userId, entryDate, 40),
-    ...ranges.map(([start, end]) => listEntriesInRange(userId, start, end)),
-  ]);
-
-  const byId = new Map<string, DiaryEntry>();
-  for (const entry of [...recent, ...rangeResults.flat()]) {
-    if (entry.entryDate < entryDate) {
-      byId.set(entry.id, entry);
-    }
-  }
-
-  return selectPastEntriesForDisplay(entryDate, Array.from(byId.values()));
+  const selected = await listPastSameDayMemories(userId, entryDate);
+  return selected.map((item) => item.entry);
 }
 
-/** @deprecated 同月日検索。compose では listPastEntriesForCompose を使う */
+/** 同じ月日（MM-DD）の過去日記。当日の投稿は除外 */
 export async function listPastEntriesByMonthDay(
   userId: string,
   entryDate: EntryDate,
@@ -167,7 +201,7 @@ export async function listPastEntriesByMonthDay(
 
   return snapshot.docs
     .map((item) => mapEntry(item.id, item.data()))
-    .filter((entry) => entry.entryDate !== entryDate);
+    .filter((entry) => entry.entryDate !== entryDate && entry.entryDate < entryDate);
 }
 
 export async function upsertEntry(

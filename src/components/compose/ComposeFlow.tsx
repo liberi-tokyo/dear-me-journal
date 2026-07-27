@@ -14,7 +14,7 @@ import { getCachedEntryByDate, upsertCachedEntry } from "@/lib/entries/cache";
 import { toPastEntryDisplay } from "@/lib/entries/mappers";
 import {
   getEntryByDate,
-  listPastEntriesForCompose,
+  listPastSameDayMemories,
 } from "@/lib/entries/repository";
 import { saveDiaryEntry } from "@/lib/entries/save";
 import { useMyColorsStore, useRecordMyColor } from "@/lib/myColors/storage";
@@ -196,9 +196,12 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
 
   const handleEntryDateChange = useCallback(
     async (nextDate: EntryDate) => {
-      if (!userId) {
+      if (!userId || nextDate === entryDate) {
         return;
       }
+
+      // 表示日付を即時反映（保存もこの state を使う）
+      setEntryDate(nextDate);
 
       if (photoPreviewUrl?.startsWith("blob:")) {
         revokeBlobUrl(photoPreviewUrl);
@@ -207,18 +210,19 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
       const cached = getCachedEntryByDate(userId, nextDate);
       if (cached !== undefined) {
         applyEntry(cached, nextDate);
+      } else {
+        // キャッシュが無い間は新規扱いにし、誤って別日の下書きを載せない
+        applyEntry(null, nextDate);
       }
 
       try {
         const entry = await getEntryByDate(userId, nextDate);
         applyEntry(entry, nextDate);
       } catch {
-        if (cached === undefined) {
-          applyEntry(null, nextDate);
-        }
+        // キャッシュ適用済み / 新規リセット済み
       }
     },
-    [applyEntry, photoPreviewUrl, userId],
+    [applyEntry, entryDate, photoPreviewUrl, userId],
   );
 
   const loadPastEntries = useCallback(
@@ -230,8 +234,10 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
       setPastLoading(true);
       setPastError(null);
       try {
-        const past = await listPastEntriesForCompose(userId, savedDate);
-        setPastEntries(past.map(toPastEntryDisplay));
+        const past = await listPastSameDayMemories(userId, savedDate);
+        setPastEntries(
+          past.map((item) => toPastEntryDisplay(item.entry, item.label)),
+        );
       } catch {
         setPastEntries([]);
         setPastError("過去の日記を読み込めませんでした");

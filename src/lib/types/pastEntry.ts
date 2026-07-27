@@ -7,4 +7,6 @@ export type PastEntryDisplay = {
   body: string;
   color: string;
   photoUrl?: string;
+  /** 選定スロット由来の表示ラベル（例: 1か月前の今日） */
+  pastLabel?: string;
 };

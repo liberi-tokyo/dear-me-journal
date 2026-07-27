@@ -1,110 +1,146 @@
 import type { DiaryEntry, EntryDate } from "@/lib/types/entry";
-import { calendarDaysBetween } from "@/lib/utils/date";
+import {
+  addCalendarDays,
+  calendarDaysBetween,
+  formatDaysAgoTodayLabel,
+  formatYearsAgoTodayLabel,
+  parseEntryDate,
+  shiftCalendarMonthsStrict,
+  shiftCalendarYearsStrict,
+} from "@/lib/utils/date";
 
-type DayTarget = {
-  targetDays: number;
-  tolerance: number;
+/** 過去日記の表示上限 */
+export const MAX_PAST_SAME_DAY_ENTRIES = 10;
+
+/** 基準日から遡る年数の上限（1〜10年前） */
+export const MAX_PAST_YEARS_AGO = 10;
+
+export type PastEntrySlot =
+  | "one-month"
+  | "one-week-fallback"
+  | "random-fallback"
+  | "six-months"
+  | "years-ago";
+
+export type PastEntrySelection = {
+  entry: DiaryEntry;
+  label: string;
+  slot: PastEntrySlot;
 };
 
-const ANNIVERSARY_TARGETS: DayTarget[] = [
-  { targetDays: 7, tolerance: 2 },
-  { targetDays: 30, tolerance: 5 },
-  { targetDays: 365, tolerance: 20 },
-  { targetDays: 730, tolerance: 25 },
-  { targetDays: 1095, tolerance: 30 },
-];
+export type SameDayTargetDates = {
+  oneMonthAgo: EntryDate | null;
+  sixMonthsAgo: EntryDate | null;
+  oneWeekAgo: EntryDate;
+  /** 1年前〜maxYearsAgo年前（存在する暦日のみ） */
+  yearsAgo: EntryDate[];
+};
 
-function pickClosestToTarget(
-  candidates: DiaryEntry[],
+/**
+ * 基準日に対する「同じ日」ターゲットを生成する。
+ * 月末などで日が存在しない月・年は null / 配列から除外（丸めない）。
+ */
+export function buildSameDayTargetDates(
   referenceDate: EntryDate,
-  targetDays: number,
-  tolerance: number,
-  usedIds: Set<string>,
-): DiaryEntry | undefined {
-  let best: DiaryEntry | undefined;
-  let bestDelta = Number.POSITIVE_INFINITY;
-
-  for (const entry of candidates) {
-    if (usedIds.has(entry.id)) {
-      continue;
-    }
-    const days = calendarDaysBetween(referenceDate, entry.entryDate);
-    const delta = Math.abs(days - targetDays);
-    if (delta > tolerance) {
-      continue;
-    }
-    if (delta < bestDelta) {
-      best = entry;
-      bestDelta = delta;
+  maxYearsAgo = MAX_PAST_YEARS_AGO,
+): SameDayTargetDates {
+  const yearsAgo: EntryDate[] = [];
+  for (let years = 1; years <= maxYearsAgo; years += 1) {
+    const date = shiftCalendarYearsStrict(referenceDate, -years);
+    if (date) {
+      yearsAgo.push(date);
     }
   }
 
-  return best;
+  return {
+    oneMonthAgo: shiftCalendarMonthsStrict(referenceDate, -1),
+    sixMonthsAgo: shiftCalendarMonthsStrict(referenceDate, -6),
+    oneWeekAgo: addCalendarDays(referenceDate, -7),
+    yearsAgo,
+  };
+}
+
+function yearsBetween(referenceDate: EntryDate, pastDate: EntryDate): number {
+  return parseEntryDate(referenceDate).year - parseEntryDate(pastDate).year;
 }
 
 /**
- * 投稿完了後に表示する過去日記を優先順位で並べる。
+ * 取得済みの日記マップから、同じ日の過去枠を優先順位どおりに組み立てる。
+ * 最大 MAX_PAST_SAME_DAY_ENTRIES 件。欠けた枠は飛ばし、最大10年前まで埋める。
  *
- * 1. 今回より前の最も新しい日記
- * 2. 2〜7日前
- * 3. 約1週間前
- * 4. 約1か月前
- * 5〜7. 約1〜3年前
- * 8. その他
- *
- * 重複なし。未来・当日は呼び出し側で除外済み想定。
- * 候補が1件だけならその1件を必ず返す。
+ * 1. 1か月前の同じ日
+ *    - なければ 1週間前
+ *    - それもなければ randomCandidates から1件（「N日前の今日」）
+ * 2. 半年前の同じ日
+ * 3. 1年前〜10年前（存在する年だけ）
  */
-export function selectPastEntriesForDisplay(
+export function selectSameDayPastEntries(
   referenceDate: EntryDate,
-  candidates: DiaryEntry[],
-): DiaryEntry[] {
-  const past = candidates
-    .filter((entry) => entry.entryDate < referenceDate)
-    .sort((a, b) => (a.entryDate < b.entryDate ? 1 : -1));
-
-  if (past.length <= 1) {
-    return past;
-  }
-
+  entriesByDate: Map<EntryDate, DiaryEntry>,
+  randomCandidates: DiaryEntry[] = [],
+): PastEntrySelection[] {
+  const targets = buildSameDayTargetDates(referenceDate);
   const usedIds = new Set<string>();
-  const result: DiaryEntry[] = [];
+  const result: PastEntrySelection[] = [];
 
-  const take = (entry: DiaryEntry | undefined) => {
-    if (!entry || usedIds.has(entry.id)) {
-      return;
+  const takeExact = (
+    date: EntryDate | null,
+    label: string,
+    slot: PastEntrySlot,
+  ) => {
+    if (result.length >= MAX_PAST_SAME_DAY_ENTRIES) {
+      return false;
+    }
+    if (!date) {
+      return false;
+    }
+    const entry = entriesByDate.get(date);
+    if (!entry || entry.entryDate >= referenceDate || usedIds.has(entry.id)) {
+      return false;
     }
     usedIds.add(entry.id);
-    result.push(entry);
+    result.push({ entry, label, slot });
+    return true;
   };
 
-  // 1. 最も新しい過去日記
-  take(past[0]);
-
-  // 2. 2日前〜7日前（新しい順）
-  for (const entry of past) {
-    const days = calendarDaysBetween(referenceDate, entry.entryDate);
-    if (days >= 2 && days <= 7) {
-      take(entry);
+  // 1. 1か月前 → 1週間前 → ランダム
+  if (!takeExact(targets.oneMonthAgo, "1か月前の今日", "one-month")) {
+    if (
+      !takeExact(
+        targets.oneWeekAgo,
+        formatDaysAgoTodayLabel(7),
+        "one-week-fallback",
+      )
+    ) {
+      if (result.length < MAX_PAST_SAME_DAY_ENTRIES) {
+        const pool = randomCandidates.filter(
+          (entry) =>
+            entry.entryDate < referenceDate && !usedIds.has(entry.id),
+        );
+        if (pool.length > 0) {
+          const picked = pool[Math.floor(Math.random() * pool.length)];
+          const days = calendarDaysBetween(referenceDate, picked.entryDate);
+          usedIds.add(picked.id);
+          result.push({
+            entry: picked,
+            label: formatDaysAgoTodayLabel(days),
+            slot: "random-fallback",
+          });
+        }
+      }
     }
   }
 
-  // 3〜7. 約1週間 / 1か月 / 1〜3年前
-  for (const target of ANNIVERSARY_TARGETS) {
-    take(
-      pickClosestToTarget(
-        past,
-        referenceDate,
-        target.targetDays,
-        target.tolerance,
-        usedIds,
-      ),
-    );
-  }
+  // 2. 半年前の同じ日
+  takeExact(targets.sixMonthsAgo, "半年前の今日", "six-months");
 
-  // 8. その他（新しい順）
-  for (const entry of past) {
-    take(entry);
+  // 3. 1〜10年前の同じ日（欠けた年は飛ばし、上限まで埋める）
+  for (const yearDate of targets.yearsAgo) {
+    if (result.length >= MAX_PAST_SAME_DAY_ENTRIES) {
+      break;
+    }
+    const years = yearsBetween(referenceDate, yearDate);
+    takeExact(yearDate, formatYearsAgoTodayLabel(years), "years-ago");
   }
 
   return result;

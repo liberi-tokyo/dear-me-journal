@@ -65,41 +65,94 @@ export function calendarDaysBetween(
   return Math.round((referenceUtc - pastUtc) / 86_400_000);
 }
 
+/**
+ * 暦月をずらす。日が存在しない月は丸めず null（例: 3/31 の1か月前 → null）。
+ * うるう年の 2/29 も同様に判定する。
+ */
+export function shiftCalendarMonthsStrict(
+  entryDate: EntryDate,
+  deltaMonths: number,
+): EntryDate | null {
+  const { year, month, day } = parseEntryDate(entryDate);
+  const totalMonths = year * 12 + (month - 1) + deltaMonths;
+  const nextYear = Math.floor(totalMonths / 12);
+  const nextMonth = (totalMonths % 12) + 1;
+  if (day > getDaysInMonth(nextYear, nextMonth)) {
+    return null;
+  }
+  return toEntryDate(nextYear, nextMonth, day);
+}
+
+/**
+ * 暦年をずらす。2/29 → 非うるう年は null（丸めない）。
+ */
+export function shiftCalendarYearsStrict(
+  entryDate: EntryDate,
+  deltaYears: number,
+): EntryDate | null {
+  const { year, month, day } = parseEntryDate(entryDate);
+  const nextYear = year + deltaYears;
+  if (day > getDaysInMonth(nextYear, month)) {
+    return null;
+  }
+  return toEntryDate(nextYear, month, day);
+}
+
 /** ja: 2026年7月5日 */
 export function formatEntryDateLabel(entryDate: EntryDate): string {
   const { year, month, day } = parseEntryDate(entryDate);
   return `${year}年${month}月${day}日`;
 }
 
-/** 投稿日を基準に、過去日記の「Nか月前の今日 / N年前の今日」ラベルを返す */
+/** N日前の今日 */
+export function formatDaysAgoTodayLabel(days: number): string {
+  if (days <= 0) {
+    return "過去の今日";
+  }
+  return `${days}日前の今日`;
+}
+
+/** N年前の今日 */
+export function formatYearsAgoTodayLabel(years: number): string {
+  if (years <= 0) {
+    return "過去の今日";
+  }
+  return `${years}年前の今日`;
+}
+
+/**
+ * 投稿日を基準に、過去日記ラベルを返す（スロット不明時のフォールバック）。
+ * スロット付き表示では PastEntryDisplay.pastLabel を優先する。
+ */
 export function formatPastTodayLabel(
   referenceEntryDate: EntryDate,
   pastEntryDate: EntryDate,
 ): string {
   const days = calendarDaysBetween(referenceEntryDate, pastEntryDate);
-
   if (days <= 0) {
-    return "過去の日記";
-  }
-  if (days === 1) {
-    return "1日前";
-  }
-  if (days < 7) {
-    return `${days}日前`;
-  }
-  if (days <= 10) {
-    return "約1週間前";
-  }
-  if (days <= 45) {
-    return "約1か月前";
-  }
-  if (days < 300) {
-    const months = Math.max(2, Math.round(days / 30));
-    return `約${months}か月前`;
+    return "過去の今日";
   }
 
-  const years = Math.max(1, Math.round(days / 365));
-  return `約${years}年前`;
+  const oneMonth = shiftCalendarMonthsStrict(referenceEntryDate, -1);
+  if (oneMonth && pastEntryDate === oneMonth) {
+    return "1か月前の今日";
+  }
+
+  const sixMonths = shiftCalendarMonthsStrict(referenceEntryDate, -6);
+  if (sixMonths && pastEntryDate === sixMonths) {
+    return "半年前の今日";
+  }
+
+  const reference = parseEntryDate(referenceEntryDate);
+  const past = parseEntryDate(pastEntryDate);
+  if (reference.month === past.month && reference.day === past.day) {
+    const years = reference.year - past.year;
+    if (years >= 1) {
+      return formatYearsAgoTodayLabel(years);
+    }
+  }
+
+  return formatDaysAgoTodayLabel(days);
 }
 
 export function getDaysInMonth(year: number, month: number): number {
