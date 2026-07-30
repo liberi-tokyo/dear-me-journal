@@ -2,7 +2,7 @@
 
 import { useCallback, useId, useRef, useState, type CSSProperties } from "react";
 
-import { ColorPickerSheet } from "@/components/compose/ColorPickerSheet";
+import { AppColorPicker } from "@/components/compose/AppColorPicker";
 import { ColorSwatch } from "@/components/compose/ColorSwatch";
 import { SavedEntryCard } from "@/components/entry/SavedEntryCard";
 import type { EntryDate } from "@/lib/types/entry";
@@ -47,18 +47,30 @@ export function ComposeColorStep({
     setPickerOpen(true);
   }, [draftColor, pickerOpen, saving]);
 
-  const handleSheetCancel = useCallback(() => {
+  const handlePickerCancel = useCallback(() => {
     setDraftColor(colorBeforePickerRef.current);
     setPickerOpen(false);
   }, []);
 
-  const handleSheetConfirm = useCallback(() => {
+  const handlePickerConfirm = useCallback(() => {
     setPickerOpen(false);
   }, []);
 
   const handleSave = () => {
     onConfirm(normalizeHex(draftColor));
   };
+
+  if (pickerOpen) {
+    return (
+      <AppColorPicker
+        color={draftColor}
+        recentColors={recentColors}
+        onColorChange={setDraftColor}
+        onConfirm={handlePickerConfirm}
+        onCancel={handlePickerCancel}
+      />
+    );
+  }
 
   return (
     <div
@@ -78,7 +90,7 @@ export function ComposeColorStep({
         </h1>
 
         <div
-          className={`relative z-0 flex flex-1 flex-col gap-8 ${saving ? "pointer-events-none opacity-60" : ""}`}
+          className={`relative z-0 flex flex-1 flex-col gap-8 ${saving ? "opacity-60" : ""}`}
           aria-busy={saving}
         >
           <div className="mx-auto w-full max-w-md">
@@ -93,32 +105,23 @@ export function ComposeColorStep({
 
           <section
             aria-labelledby={headingId}
-            className="relative z-10 mx-auto flex w-full max-w-md flex-col items-center gap-3"
+            className="mx-auto flex w-full max-w-md flex-col items-center gap-3"
           >
             <button
               type="button"
               onClick={openPicker}
+              disabled={saving}
               aria-label={`選択中の色 ${draftColor}。タップして色を選ぶ`}
-              aria-haspopup="dialog"
-              aria-expanded={pickerOpen}
-              className="relative z-20 flex size-24 touch-manipulation items-center justify-center rounded-full border-2 border-stone-800/20 shadow-md"
-              style={{
-                backgroundColor: draftColor,
-                WebkitTapHighlightColor: "rgba(0,0,0,0.15)",
-                touchAction: "manipulation",
-              }}
+              className="flex size-24 touch-manipulation items-center justify-center rounded-2xl border-2 border-stone-800/20 shadow-md disabled:opacity-60"
+              style={{ backgroundColor: draftColor }}
             >
-              <span
-                aria-hidden
-                className="pointer-events-none size-full rounded-full"
-              />
               <span className="sr-only">色を選ぶ</span>
             </button>
             <button
               type="button"
               onClick={openPicker}
-              className="relative z-20 min-h-11 touch-manipulation px-4 text-sm text-stone-500 transition-colors hover:text-stone-700"
-              style={{ touchAction: "manipulation" }}
+              disabled={saving}
+              className="min-h-11 touch-manipulation px-4 text-sm text-stone-500 disabled:opacity-60"
             >
               色を選ぶ
             </button>
@@ -144,7 +147,11 @@ export function ComposeColorStep({
                     key={color}
                     color={color}
                     selected={normalizeHex(color) === normalizeHex(draftColor)}
-                    onSelect={(next) => setDraftColor(normalizeHex(next))}
+                    onSelect={(next) => {
+                      if (!saving) {
+                        setDraftColor(normalizeHex(next));
+                      }
+                    }}
                   />
                 ))}
               </div>
@@ -156,22 +163,13 @@ export function ComposeColorStep({
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="min-h-11 w-full touch-manipulation rounded-full border border-stone-200/90 bg-white/80 py-3.5 text-base font-medium text-stone-700 shadow-sm shadow-stone-300/25 backdrop-blur-sm transition-[transform,opacity,background-color] active:scale-[0.98] disabled:opacity-60"
+              className="min-h-11 w-full touch-manipulation rounded-full border border-stone-200/90 bg-white/80 py-3.5 text-base font-medium text-stone-700 shadow-sm shadow-stone-300/25 backdrop-blur-sm active:scale-[0.98] disabled:opacity-60"
             >
               この色で保存する
             </button>
           </div>
         </div>
       </div>
-
-      <ColorPickerSheet
-        open={pickerOpen}
-        color={draftColor}
-        recentColors={recentColors}
-        onColorChange={setDraftColor}
-        onConfirm={handleSheetConfirm}
-        onCancel={handleSheetCancel}
-      />
     </div>
   );
 }

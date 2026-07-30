@@ -8,7 +8,7 @@ import {
   type ChangeEvent,
 } from "react";
 
-import { EntryDateButton } from "@/components/compose/EntryDateButton";
+import { EntryDateField } from "@/components/compose/EntryDateField";
 import { useVisualViewportBottomInset } from "@/lib/hooks/useVisualViewportBottomInset";
 import type { EntryDate } from "@/lib/types/entry";
 
@@ -92,7 +92,7 @@ export function ComposeWriteStep({
             同じ日付の日記があるため、保存すると上書きされます
           </p>
         ) : null}
-        <EntryDateButton entryDate={entryDate} onChange={onEntryDateChange} />
+        <EntryDateField entryDate={entryDate} onChange={onEntryDateChange} />
 
         <textarea
           value={body}
