@@ -17,13 +17,14 @@ import {
   listPastSameDayMemories,
 } from "@/lib/entries/repository";
 import { saveDiaryEntry } from "@/lib/entries/save";
+import { prepareImageForCompose } from "@/lib/image";
 import { useMyColorsStore, useRecordMyColor } from "@/lib/myColors/storage";
+import { perfEnd, perfLog, perfStart } from "@/lib/perf";
 import type { ComposeStep } from "@/lib/types/compose";
 import type { DiaryEntry, EntryDate } from "@/lib/types/entry";
 import type { PastEntryDisplay } from "@/lib/types/pastEntry";
 import { normalizeHex } from "@/lib/utils/color";
 import { todayEntryDate } from "@/lib/utils/date";
-import { prepareImageForCrop } from "@/lib/utils/imageCrop";
 
 type ComposeFlowProps = {
   initialDate?: string;
@@ -62,6 +63,7 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const savingLockRef = useRef(false);
+  const pastRequestIdRef = useRef(0);
   const composePromptRef = useRef(composePrompt);
   const usePromptAsTemplateRef = useRef(usePromptAsTemplate);
 
@@ -153,7 +155,7 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
   const handlePhotoSelect = useCallback(
     async (file: File) => {
       try {
-        const prepared = await prepareImageForCrop(file);
+        const prepared = await prepareImageForCompose(file);
         revokeBlobUrl(cropSourceUrl);
         setCropSourceUrl(URL.createObjectURL(prepared));
         setStep("crop");
@@ -231,18 +233,29 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
         return;
       }
 
+      const requestId = ++pastRequestIdRef.current;
       setPastLoading(true);
       setPastError(null);
       try {
         const past = await listPastSameDayMemories(userId, savedDate);
+        // Strict Mode や連打で古い応答を捨てる
+        if (requestId !== pastRequestIdRef.current) {
+          perfLog("past:loadIgnoredStaleResponse", { savedDate, requestId });
+          return;
+        }
         setPastEntries(
           past.map((item) => toPastEntryDisplay(item.entry, item.label)),
         );
       } catch {
+        if (requestId !== pastRequestIdRef.current) {
+          return;
+        }
         setPastEntries([]);
         setPastError("過去の日記を読み込めませんでした");
       } finally {
-        setPastLoading(false);
+        if (requestId === pastRequestIdRef.current) {
+          setPastLoading(false);
+        }
       }
     },
     [userId],
@@ -259,10 +272,13 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
       setSaveError(null);
 
       const normalized = normalizeHex(selectedColor);
-      // 保存中も入力内容を残したまま past へ進める準備
       setColor(normalized);
 
+      const toPastScreenKey = perfStart("compose:saveToPastScreen");
+      const fullyDoneKey = perfStart("compose:saveToFullyDone");
+
       try {
+        const cachedExisting = getCachedEntryByDate(userId, entryDate);
         const saved = await saveDiaryEntry({
           userId,
           entryDate,
@@ -270,8 +286,11 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
           color: normalized,
           newPhotoBlob: croppedPhotoBlob,
           photoRemoved,
+          existing:
+            cachedExisting === undefined ? undefined : cachedExisting,
         });
 
+        // upsertEntry 内でも cache 更新済みだが、画面 state と揃える
         upsertCachedEntry(userId, saved);
         recordMyColor(normalized);
         setMode("edit");
@@ -286,11 +305,23 @@ export function ComposeFlow({ initialDate }: ComposeFlowProps) {
           setPhotoPreviewUrl(undefined);
         }
 
+        // 保存完了時点で投稿完了画面へ。過去日記は後続で読み込む
+        setPastEntries([]);
+        setPastError(null);
+        setPastLoading(true);
         setStep("past");
-        await loadPastEntries(entryDate);
+        setSaving(false);
+        savingLockRef.current = false;
+        perfEnd(toPastScreenKey);
+        perfLog("compose:pastScreenShown", { entryDate });
+
+        void loadPastEntries(entryDate).finally(() => {
+          perfEnd(fullyDoneKey);
+        });
       } catch {
+        perfEnd(toPastScreenKey);
+        perfEnd(fullyDoneKey);
         setSaveError("保存に失敗しました。もう一度お試しください");
-      } finally {
         setSaving(false);
         savingLockRef.current = false;
       }

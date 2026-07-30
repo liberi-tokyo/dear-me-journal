@@ -2,6 +2,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  documentId,
   getDoc,
   getDocs,
   limit,
@@ -14,6 +15,7 @@ import {
 } from "firebase/firestore";
 
 import {
+  getCachedEntryByDate,
   mergeCachedEntries,
   upsertCachedEntry,
 } from "@/lib/entries/cache";
@@ -26,6 +28,9 @@ import { getClientFirestore } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/firebase/constants";
 import type { DiaryEntry, DiaryEntryWriteInput, EntryDate } from "@/lib/types/entry";
 import { toMonthDay } from "@/lib/utils/date";
+import { perfLog, perfMeasure } from "@/lib/perf";
+
+const FIRESTORE_IN_QUERY_LIMIT = 30;
 
 function entriesCollection(userId: string) {
   return collection(
@@ -75,6 +80,77 @@ export async function getEntryByDate(
     return null;
   }
   return mapEntry(snapshot.id, snapshot.data());
+}
+
+function chunkDates(dates: EntryDate[], size: number): EntryDate[][] {
+  const chunks: EntryDate[][] = [];
+  for (let i = 0; i < dates.length; i += size) {
+    chunks.push(dates.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/**
+ * 複数 entryDate をドキュメント ID でまとめて取得（最大 30 件/クエリ、並列）。
+ * 存在しない日付は結果に含まれない。
+ */
+export async function getEntriesByDates(
+  userId: string,
+  entryDates: EntryDate[],
+): Promise<Map<EntryDate, DiaryEntry>> {
+  const unique = [...new Set(entryDates)];
+  const result = new Map<EntryDate, DiaryEntry>();
+  if (unique.length === 0) {
+    return result;
+  }
+
+  const missing: EntryDate[] = [];
+  for (const date of unique) {
+    const cached = getCachedEntryByDate(userId, date);
+    if (cached === undefined) {
+      missing.push(date);
+    } else if (cached) {
+      result.set(date, cached);
+    }
+  }
+
+  if (missing.length === 0) {
+    perfLog("past:getEntriesByDates:allCache", { count: unique.length });
+    return result;
+  }
+
+  await perfMeasure("past:getEntriesByDates:network", async () => {
+    const chunks = chunkDates(missing, FIRESTORE_IN_QUERY_LIMIT);
+    const snapshots = await Promise.all(
+      chunks.map((chunk) =>
+        getDocs(
+          query(
+            entriesCollection(userId),
+            where(documentId(), "in", chunk.map(entryIdFromDate)),
+          ),
+        ),
+      ),
+    );
+
+    const fetched: DiaryEntry[] = [];
+    for (const snapshot of snapshots) {
+      for (const item of snapshot.docs) {
+        const entry = mapEntry(item.id, item.data());
+        result.set(entry.entryDate, entry);
+        fetched.push(entry);
+      }
+    }
+    if (fetched.length > 0) {
+      mergeCachedEntries(userId, fetched, false);
+    }
+    perfLog("past:getEntriesByDates:fetched", {
+      requested: missing.length,
+      found: fetched.length,
+      chunks: chunks.length,
+    });
+  });
+
+  return result;
 }
 
 /** 全件取得（後方互換）。可能なら listEntriesInRange / listRecentEntries を使う */
@@ -128,52 +204,70 @@ export async function listEntriesBefore(
 /**
  * 基準日の「同じ日の過去」を優先取得する（投稿完了・詳細で共用）。
  *
- * - 1か月前 / 半年前 / 1週間前（代替）/ 1〜10年前: 対象日の getDoc
- * - 1か月枠の最終代替: 必要時のみ直近過去からランダム1件
+ * - 1か月前 / 半年前 / 1〜10年前: documentId で並列バッチ取得
+ * - 1週間前・直近ランダムは、1か月枠が空のときだけ追加取得
  * - 表示は最大10件
  */
 export async function listPastSameDayMemories(
   userId: string,
   referenceDate: EntryDate,
 ): Promise<PastEntrySelection[]> {
-  const targets = buildSameDayTargetDates(referenceDate);
-  const exactDates = [
-    targets.oneMonthAgo,
-    targets.sixMonthsAgo,
-    targets.oneWeekAgo,
-    ...targets.yearsAgo,
-  ].filter((date): date is EntryDate => Boolean(date));
+  return perfMeasure("past:listPastSameDayMemories", async () => {
+    const targets = buildSameDayTargetDates(referenceDate);
+    const primaryDates = [
+      targets.oneMonthAgo,
+      targets.sixMonthsAgo,
+      ...targets.yearsAgo,
+    ].filter((date): date is EntryDate => Boolean(date));
 
-  // 同じ日付が複数枠に入らないよう一意化（例:  theoretically overlapping）
-  const uniqueDates = [...new Set(exactDates)];
+    const entriesByDate = await getEntriesByDates(userId, primaryDates);
 
-  const exactEntries = await Promise.all(
-    uniqueDates.map((date) => getEntryByDate(userId, date)),
-  );
-
-  const entriesByDate = new Map<EntryDate, DiaryEntry>();
-  for (const entry of exactEntries) {
-    if (entry && entry.entryDate < referenceDate) {
-      entriesByDate.set(entry.entryDate, entry);
+    // 基準日より未来・当日は除外
+    for (const [date, entry] of [...entriesByDate.entries()]) {
+      if (entry.entryDate >= referenceDate) {
+        entriesByDate.delete(date);
+      }
     }
-  }
 
-  const needsMonthFallback =
-    !targets.oneMonthAgo || !entriesByDate.has(targets.oneMonthAgo);
-  const hasWeekFallback = Boolean(
-    targets.oneWeekAgo && entriesByDate.has(targets.oneWeekAgo),
-  );
+    const needsMonthFallback =
+      !targets.oneMonthAgo || !entriesByDate.has(targets.oneMonthAgo);
 
-  let randomCandidates: DiaryEntry[] = [];
-  if (needsMonthFallback && !hasWeekFallback) {
-    randomCandidates = await listEntriesBefore(userId, referenceDate, 40);
-  }
+    let randomCandidates: DiaryEntry[] = [];
 
-  return selectSameDayPastEntries(
-    referenceDate,
-    entriesByDate,
-    randomCandidates,
-  );
+    if (needsMonthFallback) {
+      // 1週間前は必要なときだけ
+      const weekEntries = await getEntriesByDates(userId, [
+        targets.oneWeekAgo,
+      ]);
+      for (const [date, entry] of weekEntries) {
+        if (entry.entryDate < referenceDate) {
+          entriesByDate.set(date, entry);
+        }
+      }
+
+      const hasWeekFallback = entriesByDate.has(targets.oneWeekAgo);
+      if (!hasWeekFallback) {
+        randomCandidates = await perfMeasure("past:listEntriesBeforeFallback", () =>
+          listEntriesBefore(userId, referenceDate, 40),
+        );
+      }
+    }
+
+    const selected = selectSameDayPastEntries(
+      referenceDate,
+      entriesByDate,
+      randomCandidates,
+    );
+
+    perfLog("past:listPastSameDayMemories:done", {
+      primaryRequested: primaryDates.length,
+      selected: selected.length,
+      usedWeekFallback: needsMonthFallback,
+      usedRandomFallback: randomCandidates.length > 0,
+    });
+
+    return selected;
+  });
 }
 
 /** @deprecated listPastSameDayMemories を使う */
