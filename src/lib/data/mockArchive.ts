@@ -65,11 +65,11 @@ export const MOCK_ARCHIVE_ENTRIES: ArchiveDayEntry[] = [
   ...MOCK_JULY_2026_DENSE,
 ];
 
-/** モックで表示する月（新しい順） */
+/** モックで表示する月（古い順） */
 export const MOCK_ARCHIVE_MONTHS: { year: number; month: number }[] = [
-  { year: 2026, month: 7 },
-  { year: 2026, month: 6 },
   { year: 2026, month: 5 },
+  { year: 2026, month: 6 },
+  { year: 2026, month: 7 },
 ];
 
 export function findArchiveEntry(entryDate: string): ArchiveDayEntry | undefined {
