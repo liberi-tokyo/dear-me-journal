@@ -54,8 +54,8 @@ export function monthsFromEntries(
 
   return months.sort((a, b) => {
     if (a.year !== b.year) {
-      return b.year - a.year;
+      return a.year - b.year;
     }
-    return b.month - a.month;
+    return a.month - b.month;
   });
 }
