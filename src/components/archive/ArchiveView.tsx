@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ArchiveFab } from "@/components/archive/ArchiveFab";
 import { ArchiveSettingsButton } from "@/components/archive/ArchiveSettingsButton";
@@ -72,6 +72,7 @@ export function ArchiveView({ locale = "ja" }: ArchiveViewProps) {
   const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const hasPositionedInitialView = useRef(false);
 
   const applyEntries = useCallback(
     (diaryEntries: ReturnType<typeof getCachedEntries>) => {
@@ -143,6 +144,15 @@ export function ArchiveView({ locale = "ja" }: ArchiveViewProps) {
       cancelled = true;
     };
   }, [applyEntries, userId]);
+
+  useEffect(() => {
+    if (loading || hasPositionedInitialView.current) {
+      return;
+    }
+
+    hasPositionedInitialView.current = true;
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  }, [loading, months]);
 
   const entriesByMonth = groupEntriesByMonth(entries);
 
