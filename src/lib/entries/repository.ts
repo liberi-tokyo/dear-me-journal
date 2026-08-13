@@ -21,6 +21,7 @@ import {
 } from "@/lib/entries/cache";
 import {
   buildSameDayTargetDates,
+  MIN_PAST_ENTRIES,
   selectSameDayPastEntries,
   type PastEntrySelection,
 } from "@/lib/entries/selectPastEntries";
@@ -229,13 +230,10 @@ export async function listPastSameDayMemories(
       }
     }
 
-    const needsMonthFallback =
-      !targets.oneMonthAgo || !entriesByDate.has(targets.oneMonthAgo);
-
     let randomCandidates: DiaryEntry[] = [];
 
-    if (needsMonthFallback) {
-      // 1週間前は必要なときだけ
+    // 節目の日記だけで5件に満たない場合は、1週間前とその他の日記を補充候補にする
+    if (entriesByDate.size < MIN_PAST_ENTRIES) {
       const weekEntries = await getEntriesByDates(userId, [
         targets.oneWeekAgo,
       ]);
@@ -244,13 +242,12 @@ export async function listPastSameDayMemories(
           entriesByDate.set(date, entry);
         }
       }
+    }
 
-      const hasWeekFallback = entriesByDate.has(targets.oneWeekAgo);
-      if (!hasWeekFallback) {
-        randomCandidates = await perfMeasure("past:listEntriesBeforeFallback", () =>
-          listEntriesBefore(userId, referenceDate, 40),
-        );
-      }
+    if (entriesByDate.size < MIN_PAST_ENTRIES) {
+      randomCandidates = await perfMeasure("past:listEntriesBeforeFallback", () =>
+        listEntriesBefore(userId, referenceDate, 40),
+      );
     }
 
     const selected = selectSameDayPastEntries(
@@ -262,7 +259,7 @@ export async function listPastSameDayMemories(
     perfLog("past:listPastSameDayMemories:done", {
       primaryRequested: primaryDates.length,
       selected: selected.length,
-      usedWeekFallback: needsMonthFallback,
+      usedWeekFallback: entriesByDate.has(targets.oneWeekAgo),
       usedRandomFallback: randomCandidates.length > 0,
     });
 
