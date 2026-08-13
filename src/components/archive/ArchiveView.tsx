@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { ArchiveFab } from "@/components/archive/ArchiveFab";
 import { ArchiveSettingsButton } from "@/components/archive/ArchiveSettingsButton";
@@ -73,6 +79,7 @@ export function ArchiveView({ locale = "ja" }: ArchiveViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const hasPositionedInitialView = useRef(false);
+  const latestMonthRef = useRef<HTMLDivElement>(null);
 
   const applyEntries = useCallback(
     (diaryEntries: ReturnType<typeof getCachedEntries>) => {
@@ -145,13 +152,13 @@ export function ArchiveView({ locale = "ja" }: ArchiveViewProps) {
     };
   }, [applyEntries, userId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (loading || hasPositionedInitialView.current) {
       return;
     }
 
     hasPositionedInitialView.current = true;
-    window.scrollTo(0, document.documentElement.scrollHeight);
+    latestMonthRef.current?.scrollIntoView({ block: "end" });
   }, [loading, months]);
 
   const entriesByMonth = groupEntriesByMonth(entries);
@@ -226,15 +233,24 @@ export function ArchiveView({ locale = "ja" }: ArchiveViewProps) {
         ) : null}
 
         <div className="grid grid-cols-1 gap-y-14 md:grid-cols-2 md:gap-x-[clamp(2.5rem,8vw,5.5rem)] lg:grid-cols-3 lg:justify-items-center lg:gap-x-[clamp(2rem,5vw,4.5rem)]">
-          {months.map(({ year, month }) => (
-            <MonthSection
-              key={`${year}-${month}`}
-              year={year}
-              month={month}
-              entries={entriesByMonth.get(`${year}-${month}`) ?? []}
-              locale={locale}
-            />
-          ))}
+          {months.map(({ year, month }, index) => {
+            const isLatestMonth = index === months.length - 1;
+
+            return (
+              <div
+                key={`${year}-${month}`}
+                ref={isLatestMonth ? latestMonthRef : undefined}
+                className="w-full min-w-0 lg:max-w-[19.5rem]"
+              >
+                <MonthSection
+                  year={year}
+                  month={month}
+                  entries={entriesByMonth.get(`${year}-${month}`) ?? []}
+                  locale={locale}
+                />
+              </div>
+            );
+          })}
         </div>
       </main>
       <ArchiveFab />
