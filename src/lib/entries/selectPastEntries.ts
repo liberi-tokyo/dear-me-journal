@@ -9,6 +9,9 @@ import {
   shiftCalendarYearsStrict,
 } from "@/lib/utils/date";
 
+/** 過去日記が十分にある場合の最低表示件数 */
+export const MIN_PAST_ENTRIES = 5;
+
 /** 過去日記の表示上限 */
 export const MAX_PAST_SAME_DAY_ENTRIES = 10;
 
@@ -70,9 +73,12 @@ function yearsBetween(referenceDate: EntryDate, pastDate: EntryDate): number {
  *
  * 1. 1か月前の同じ日
  *    - なければ 1週間前
- *    - それもなければ randomCandidates から1件（「N日前の今日」）
+ *    - それもなければ補充候補から1件（「N日前の今日」）
  * 2. 半年前の同じ日
  * 3. 1年前〜10年前（存在する年だけ）
+ * 4. 5件未満なら、1週間前・その他の過去日記で補充
+ *
+ * 補充候補は基準日ごとに安定した順序にし、再表示で内容が変わらないようにする。
  */
 export function selectSameDayPastEntries(
   referenceDate: EntryDate,
@@ -103,7 +109,39 @@ export function selectSameDayPastEntries(
     return true;
   };
 
-  // 1. 1か月前 → 1週間前 → ランダム
+  const stableScore = (entry: DiaryEntry): number => {
+    const seed = `${referenceDate}:${entry.id}`;
+    let hash = 2166136261;
+    for (let index = 0; index < seed.length; index += 1) {
+      hash ^= seed.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  };
+
+  const stableCandidates = randomCandidates
+    .filter((entry) => entry.entryDate < referenceDate)
+    .sort((a, b) => stableScore(a) - stableScore(b));
+
+  const takeCandidate = () => {
+    if (result.length >= MAX_PAST_SAME_DAY_ENTRIES) {
+      return false;
+    }
+    const picked = stableCandidates.find((entry) => !usedIds.has(entry.id));
+    if (!picked) {
+      return false;
+    }
+    const days = calendarDaysBetween(referenceDate, picked.entryDate);
+    usedIds.add(picked.id);
+    result.push({
+      entry: picked,
+      label: formatDaysAgoTodayLabel(days),
+      slot: "random-fallback",
+    });
+    return true;
+  };
+
+  // 1. 1か月前 → 1週間前 → 安定した補充候補
   if (!takeExact(targets.oneMonthAgo, "1か月前の今日", "one-month")) {
     if (
       !takeExact(
@@ -112,22 +150,7 @@ export function selectSameDayPastEntries(
         "one-week-fallback",
       )
     ) {
-      if (result.length < MAX_PAST_SAME_DAY_ENTRIES) {
-        const pool = randomCandidates.filter(
-          (entry) =>
-            entry.entryDate < referenceDate && !usedIds.has(entry.id),
-        );
-        if (pool.length > 0) {
-          const picked = pool[Math.floor(Math.random() * pool.length)];
-          const days = calendarDaysBetween(referenceDate, picked.entryDate);
-          usedIds.add(picked.id);
-          result.push({
-            entry: picked,
-            label: formatDaysAgoTodayLabel(days),
-            slot: "random-fallback",
-          });
-        }
-      }
+      takeCandidate();
     }
   }
 
@@ -141,6 +164,18 @@ export function selectSameDayPastEntries(
     }
     const years = yearsBetween(referenceDate, yearDate);
     takeExact(yearDate, formatYearsAgoTodayLabel(years), "years-ago");
+  }
+
+  // 4. 節目の日記で5件に満たない場合は、1週間前とその他の過去日記で補充
+  if (result.length < MIN_PAST_ENTRIES) {
+    takeExact(
+      targets.oneWeekAgo,
+      formatDaysAgoTodayLabel(7),
+      "one-week-fallback",
+    );
+  }
+  while (result.length < MIN_PAST_ENTRIES && takeCandidate()) {
+    // 候補が尽きるか、最低表示件数に達するまで追加
   }
 
   return result;
