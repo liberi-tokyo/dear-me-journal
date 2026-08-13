@@ -47,7 +47,7 @@ export function FeaturedPastEntry({
         />
       ) : null}
 
-      <p className="mt-6 whitespace-pre-wrap text-xl leading-[1.85] text-stone-800">
+      <p className="mt-6 whitespace-pre-wrap text-base leading-relaxed text-stone-700">
         {entry.body}
       </p>
     </article>
