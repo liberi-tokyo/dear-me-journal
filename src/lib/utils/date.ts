@@ -104,12 +104,29 @@ export function formatEntryDateLabel(entryDate: EntryDate): string {
   return `${year}年${month}月${day}日`;
 }
 
-/** N日前の今日 */
+/** 経過日数を年・週・日の読みやすい単位へまとめる */
 export function formatDaysAgoTodayLabel(days: number): string {
   if (days <= 0) {
     return "過去の今日";
   }
-  return `${days}日前の今日`;
+
+  const years = Math.floor(days / 365);
+  const daysAfterYears = days % 365;
+  const weeks = Math.floor(daysAfterYears / 7);
+  const remainingDays = daysAfterYears % 7;
+  const parts: string[] = [];
+
+  if (years > 0) {
+    parts.push(`${years}年`);
+  }
+  if (weeks > 0) {
+    parts.push(`${weeks}週間`);
+  }
+  if (remainingDays > 0) {
+    parts.push(`${remainingDays}日`);
+  }
+
+  return `${parts.join("")}前の今日`;
 }
 
 /** N年前の今日 */
