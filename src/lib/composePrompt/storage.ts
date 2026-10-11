@@ -4,6 +4,7 @@ import {
   COMPOSE_PROMPT_STORAGE_KEY,
   DEFAULT_COMPOSE_PROMPT,
   DEFAULT_USE_PROMPT_AS_TEMPLATE,
+  LEGACY_DEFAULT_COMPOSE_PROMPT,
   LEGACY_COMPOSE_PROMPTS_STORAGE_KEY,
   MAX_COMPOSE_PROMPT_LENGTH,
   USE_PROMPT_AS_TEMPLATE_STORAGE_KEY,
@@ -33,7 +34,13 @@ function parseStoredPrompt(raw: string): string | null {
     const parsed: unknown = JSON.parse(raw);
 
     if (typeof parsed === "string") {
-      return isValidPrompt(parsed) ? parsed.trim() : null;
+      if (!isValidPrompt(parsed)) {
+        return null;
+      }
+      const prompt = parsed.trim();
+      return prompt === LEGACY_DEFAULT_COMPOSE_PROMPT
+        ? DEFAULT_COMPOSE_PROMPT
+        : prompt;
     }
 
     if (
@@ -42,11 +49,17 @@ function parseStoredPrompt(raw: string): string | null {
       typeof parsed[0] === "string" &&
       parsed[0].trim().length > 0
     ) {
-      return normalizeComposePrompt(parsed[0]);
+      const prompt = normalizeComposePrompt(parsed[0]);
+      return prompt === LEGACY_DEFAULT_COMPOSE_PROMPT
+        ? DEFAULT_COMPOSE_PROMPT
+        : prompt;
     }
   } catch {
     if (raw.trim().length > 0) {
-      return normalizeComposePrompt(raw);
+      const prompt = normalizeComposePrompt(raw);
+      return prompt === LEGACY_DEFAULT_COMPOSE_PROMPT
+        ? DEFAULT_COMPOSE_PROMPT
+        : prompt;
     }
   }
 
