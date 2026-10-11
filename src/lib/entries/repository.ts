@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 
 import {
+  getCachedEntries,
   getCachedEntryByDate,
   mergeCachedEntries,
   upsertCachedEntry,
@@ -232,8 +233,23 @@ export async function listPastSameDayMemories(
 
     let randomCandidates: DiaryEntry[] = [];
 
+    const cachedCandidates = (getCachedEntries(userId) ?? [])
+      .filter((entry) => entry.entryDate < referenceDate)
+      .slice(0, 40);
+
+    // アーカイブ表示済みなら、そのキャッシュから補充して追加の往復を避ける
+    if (entriesByDate.size < MIN_PAST_ENTRIES && cachedCandidates.length > 0) {
+      randomCandidates = cachedCandidates;
+      const cachedWeek = getCachedEntryByDate(userId, targets.oneWeekAgo);
+      if (cachedWeek && cachedWeek.entryDate < referenceDate) {
+        entriesByDate.set(cachedWeek.entryDate, cachedWeek);
+      }
+    }
+
     // 節目の日記だけで5件に満たない場合は、1週間前とその他の日記を補充候補にする
-    if (entriesByDate.size < MIN_PAST_ENTRIES) {
+    if (
+      entriesByDate.size + randomCandidates.length < MIN_PAST_ENTRIES
+    ) {
       const weekEntries = await getEntriesByDates(userId, [
         targets.oneWeekAgo,
       ]);
@@ -244,7 +260,9 @@ export async function listPastSameDayMemories(
       }
     }
 
-    if (entriesByDate.size < MIN_PAST_ENTRIES) {
+    if (
+      entriesByDate.size + randomCandidates.length < MIN_PAST_ENTRIES
+    ) {
       randomCandidates = await perfMeasure("past:listEntriesBeforeFallback", () =>
         listEntriesBefore(userId, referenceDate, 40),
       );

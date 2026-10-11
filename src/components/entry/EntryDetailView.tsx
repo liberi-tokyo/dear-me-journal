@@ -49,6 +49,11 @@ export function EntryDetailView({ entryDate }: EntryDetailViewProps) {
     let cancelled = false;
 
     void (async () => {
+      const pastPromise = listPastSameDayMemories(userId, entryDate).then(
+        (past) => ({ past, error: false as const }),
+        () => ({ past: [], error: true as const }),
+      );
+
       try {
         const diaryEntry = await getEntryByDate(userId, entryDate);
         if (cancelled) {
@@ -65,22 +70,19 @@ export function EntryDetailView({ entryDate }: EntryDetailViewProps) {
 
           setPastLoading(true);
           setPastError(null);
-          try {
-            const past = await listPastSameDayMemories(userId, entryDate);
-            if (!cancelled) {
-              setPastEntries(
-                past.map((item) => toPastEntryDisplay(item.entry, item.label)),
-              );
-            }
-          } catch {
-            if (!cancelled) {
+          const pastResult = await pastPromise;
+          if (!cancelled) {
+            if (pastResult.error) {
               setPastEntries([]);
               setPastError("過去の日記を読み込めませんでした");
+            } else {
+              setPastEntries(
+                pastResult.past.map((item) =>
+                  toPastEntryDisplay(item.entry, item.label),
+                ),
+              );
             }
-          } finally {
-            if (!cancelled) {
-              setPastLoading(false);
-            }
+            setPastLoading(false);
           }
         }
       } catch {
