@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { EntryCard } from "@/components/entry/EntryCard";
@@ -22,6 +23,7 @@ type EntryDetailViewProps = {
 const ENTRY_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export function EntryDetailView({ entryDate }: EntryDetailViewProps) {
+  const router = useRouter();
   const { user } = useAuth();
   const userId = user?.uid;
   const isValidDate = ENTRY_DATE_PATTERN.test(entryDate);
@@ -40,6 +42,14 @@ export function EntryDetailView({ entryDate }: EntryDetailViewProps) {
     !isValidDate || initialCached === null,
   );
   const [error, setError] = useState<string | null>(null);
+
+  const returnToArchive = () => {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.replace("/");
+  };
 
   useEffect(() => {
     if (!isValidDate || !userId) {
@@ -116,12 +126,13 @@ export function EntryDetailView({ entryDate }: EntryDetailViewProps) {
         <p className="text-sm text-stone-500">
           {error ?? "日記が見つかりません"}
         </p>
-        <Link
-          href="/"
+        <button
+          type="button"
+          onClick={returnToArchive}
           className="mt-6 text-sm text-stone-400 transition-colors hover:text-stone-600"
         >
           ← アーカイブ
-        </Link>
+        </button>
       </div>
     );
   }
@@ -133,12 +144,13 @@ export function EntryDetailView({ entryDate }: EntryDetailViewProps) {
     <div className="min-h-dvh bg-white">
       <header className="sticky top-0 z-10 bg-[#FFF] px-5 py-4">
         <div className="flex items-center justify-between">
-          <Link
-            href="/"
+          <button
+            type="button"
+            onClick={returnToArchive}
             className="text-sm text-stone-400 transition-colors hover:text-stone-600"
           >
             ← アーカイブ
-          </Link>
+          </button>
           <Link
             href={`/compose?date=${entryDate}`}
             className="text-sm text-stone-500 transition-colors hover:text-stone-700"
