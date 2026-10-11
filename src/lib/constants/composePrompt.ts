@@ -1,5 +1,8 @@
 /** 未設定時のデフォルト問いかけ（users/{uid}.composePrompt 未設定時と同じ） */
-export const DEFAULT_COMPOSE_PROMPT = "今日、忘れたくないことは？";
+export const DEFAULT_COMPOSE_PROMPT = "今日、心が動いたことは？";
+
+/** 旧デフォルト。個別設定と区別して新しい初期値へ移行するために保持 */
+export const LEGACY_DEFAULT_COMPOSE_PROMPT = "今日、忘れたくないことは？";
 
 /** 未設定時は placeholder 表示（users/{uid}.usePromptAsTemplate 未設定時と同じ） */
 export const DEFAULT_USE_PROMPT_AS_TEMPLATE = false;
