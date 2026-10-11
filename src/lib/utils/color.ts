@@ -42,13 +42,13 @@ function buildColorShadow(
   intensity: ColorShadowIntensity = {},
 ): string {
   const {
-    border = 0.1,
+    border = 0.15,
     midBlur = 28,
     midSpread = 8,
-    midOpacity = 0.08,
+    midOpacity = 0.14,
     outerBlur = 56,
     outerSpread = 20,
-    outerOpacity = 0.05,
+    outerOpacity = 0.08,
   } = intensity;
 
   return [
