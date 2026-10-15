@@ -107,7 +107,7 @@ export function PastEntriesStep({
 
       <div className="animate-past-archive-reveal px-6 pt-4 pb-8">
         <div className="mx-auto w-full max-w-md">
-          <section aria-label="返ってきた日記" className="flex flex-col gap-6">
+          <section aria-label="返ってきた日記" className="flex flex-col gap-12">
             {loading ? (
               <p className="py-8 text-center text-sm text-stone-400">
                 過去の日記を読み込んでいます…

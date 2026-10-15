@@ -162,7 +162,7 @@ export function EntryDetailView({ entryDate }: EntryDetailViewProps) {
       <main className="mx-auto max-w-md px-6 pb-16 pt-4">
         <EntryCard entry={entry} />
 
-        <section aria-label="同じ日の過去" className="mt-10 flex flex-col gap-6">
+        <section aria-label="同じ日の過去" className="mt-12 flex flex-col gap-12">
           {pastLoading ? (
             <p className="py-4 text-center text-sm text-stone-400">
               過去の日記を読み込み中…

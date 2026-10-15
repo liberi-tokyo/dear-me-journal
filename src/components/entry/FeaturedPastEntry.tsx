@@ -20,20 +20,21 @@ export function FeaturedPastEntry({
       className="w-full rounded-2xl bg-white px-5 py-6"
       style={{ boxShadow: getEntryColorShadow(entry.color) } as CSSProperties}
     >
-      <div
-        className="mb-6 h-1 w-12 rounded-full"
-        style={{ backgroundColor: entry.color }}
-        aria-hidden
-      />
-
-      <header className="mb-6 flex items-baseline justify-between gap-4">
-        <p className="text-lg font-medium text-stone-800">
-          {entry.pastLabel ??
-            formatPastTodayLabel(referenceEntryDate, entry.entryDate)}
-        </p>
-        <time className="shrink-0 text-sm text-stone-500">
-          {formatEntryDateLabel(entry.entryDate)}
-        </time>
+      <header className="mb-6">
+        <div className="flex items-baseline justify-between gap-4">
+          <p className="text-lg font-medium text-stone-800">
+            {entry.pastLabel ??
+              formatPastTodayLabel(referenceEntryDate, entry.entryDate)}
+          </p>
+          <time className="shrink-0 text-sm text-stone-500">
+            {formatEntryDateLabel(entry.entryDate)}
+          </time>
+        </div>
+        <div
+          className="-mx-5 mt-4 h-0.5"
+          style={{ backgroundColor: entry.color }}
+          aria-hidden
+        />
       </header>
 
       {entry.photoUrl ? (
